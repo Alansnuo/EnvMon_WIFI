@@ -1,0 +1,41 @@
+# MDK编译产物
+MDK-ARM/project/
+MDK-ARM/build.log
+MDK-ARM/verify_build.log
+MDK-ARM/*.uvguix.*
+MDK-ARM/*.uvoptx
+*.axf
+*.hex
+*.bin
+*.map
+*.o
+*.d
+*.crf
+*.dep
+
+# VSCode插件日志（*.log 覆盖子目录里的同名文件）
+.vscode/keil-assistant.log
+.vscode/uv4.log
+.vscode/uv4.log.lock
+*.log
+*.log.lock
+
+# Keil 其它产物
+MDK-ARM/Objects/
+MDK-ARM/Listings/
+MDK-ARM/startup_stm32f103xb.lst
+
+# CMSIS 中本工程未使用的部分（DSP/Lib/NN，约 47M，uvprojx 无任何引用）
+Drivers/CMSIS/DSP/
+Drivers/CMSIS/Lib/
+Drivers/CMSIS/NN/
+
+# 笔记 PDF（与 详解/*.md 内容重复，约 36M）
+笔记/
+
+# 编辑器自动生成本机专属文件（Keil Assistant 打开工程时会重新生成）
+MDK-ARM/.vscode/
+
+# 临时备份
+*.bak-*
+
