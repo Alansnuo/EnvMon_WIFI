@@ -678,6 +678,16 @@
               <FilePath>..\APP\app_config.h</FilePath>
             </File>
             <File>
+              <FileName>app_json.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\APP\app_json.c</FilePath>
+            </File>
+            <File>
+              <FileName>app_json.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\APP\app_json.h</FilePath>
+            </File>
+            <File>
               <FileName>task_wifi.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\APP\task_wifi.c</FilePath>

@@ -7,7 +7,7 @@
  * 顺序阻塞: 每个接口内部"发一条命令 → 等应答 → 再发下一条", 等的时候调
  * BSP_DelayMs 让出 CPU, 返回前调用者不会往下走.
  *
- * 分区: 对外接口(初始化 / WiFi / MQTT) → 内部实现(接收 / 拼命令 / 命令收发)
+ * 分区: 对外接口(初始化 / WiFi / MQTT) → 内部实现(接收 / 命令收发)
  */
 
 /* --------------------------------- 头文件 --------------------------------- */
@@ -15,11 +15,6 @@
 #include "bsp_delay.h"
 #include <string.h>
 #include <stdio.h>
-
-/* --------------------------------- 宏定义 --------------------------------- */
-
-/* 拼命令时给收尾字面量留的余量 ("\",0,0\r\n" 这类最长 15 字节) */
-#define ESP8266_CMD_TAIL_ROOM   16U
 
 /* -------------------------------- 私有变量 -------------------------------- */
 
@@ -37,16 +32,13 @@ static uint16_t s_RxLen;
 /* 接收 */
 static ESP8266_Status ESP8266_RxStart(void);
 static uint16_t       ESP8266_RxHead(void);
-static uint16_t       ESP8266_RxPop(uint8_t *dst, uint16_t max);
+static uint16_t       ESP8266_RxPop(uint8_t dst[], uint16_t max);
 static void           ESP8266_RxDrain(void);
 static void           ESP8266_ClearRxBuf(void);
 
-/* 拼命令 */
-static uint8_t        ESP8266_AppendEsc(const char *src);
-
 /* 命令收发 */
-static ESP8266_Status ESP8266_Exec(const char *ack, uint32_t timeoutMs);
-static ESP8266_Status ESP8266_SendCmd(const char *cmd, const char *ack, uint32_t timeoutMs);
+static ESP8266_Status ESP8266_Exec(const char ack[], uint32_t timeoutMs);
+static ESP8266_Status ESP8266_SendCmd(const char cmd[], const char ack[], uint32_t timeoutMs);
 
 /* ================================ 对外接口 ================================ */
 
@@ -94,14 +86,9 @@ ESP8266_Status ESP8266_Init(void)
 /**
  * @brief  接热点, 见 esp8266.h
  */
-ESP8266_Status ESP8266_ConnectAP(const char *ssid, const char *password)
+ESP8266_Status ESP8266_ConnectAP(const char ssid[], const char password[])
 {
     ESP8266_Status st;
-
-    if (ssid == NULL || password == NULL)
-    {
-        return ESP8266_ERR_PARAM;
-    }
 
     /* CWMODE 是掉电保存的, 每次重发一遍不费事, 也省得依赖模块 flash 里存了什么 */
     st = ESP8266_SendCmd("AT+CWMODE=1\r\n", "OK", ESP8266_TIMEOUT);
@@ -113,18 +100,8 @@ ESP8266_Status ESP8266_ConnectAP(const char *ssid, const char *password)
     /* 清掉可能残留的关联; 没连的时候是空操作, 所以失败也往下走 */
     (void)ESP8266_SendCmd("AT+CWQAP\r\n", "OK", ESP8266_TIMEOUT);
 
-    /* AT+CWJAP="<名字>","<密码>": 名字和密码都是用户数据, 里面的 " \ , 都得转义 */
-    (void)strcpy(s_Cmd, "AT+CWJAP=\"");
-    if (ESP8266_AppendEsc(ssid) == 0U)
-    {
-        return ESP8266_ERR_PARAM;
-    }
-    (void)strcat(s_Cmd, "\",\"");
-    if (ESP8266_AppendEsc(password) == 0U)
-    {
-        return ESP8266_ERR_PARAM;
-    }
-    (void)strcat(s_Cmd, "\"\r\n");
+    /* AT+CWJAP="<名字>","<密码>" */
+    (void)snprintf(s_Cmd, sizeof(s_Cmd), "AT+CWJAP=\"%s\",\"%s\"\r\n", ssid, password);
 
     /* 这一步包含关联 + DHCP, 要留够时间 */
     return ESP8266_Exec("OK", ESP8266_AP_TIMEOUT);
@@ -137,28 +114,14 @@ ESP8266_Status ESP8266_ConnectAP(const char *ssid, const char *password)
 /**
  * @brief  配 MQTT 鉴权参数和连接参数, 见 esp8266.h
  */
-ESP8266_Status ESP8266_MQTT_SetParam(const char *clientId, const char *username,
-                                     const char *password, uint16_t keepalive)
+ESP8266_Status ESP8266_MQTT_SetParam(const char clientId[], const char username[],
+                                     const char password[], uint16_t keepalive)
 {
     ESP8266_Status st;
 
-    if (clientId == NULL || username == NULL || password == NULL)
-    {
-        return ESP8266_ERR_PARAM;
-    }
-
     /* 设备名和产品 ID; scheme=1 = MQTT over TCP (明文 1883) */
-    (void)strcpy(s_Cmd, "AT+MQTTUSERCFG=0,1,\"");
-    if (ESP8266_AppendEsc(clientId) == 0U)
-    {
-        return ESP8266_ERR_PARAM;
-    }
-    (void)strcat(s_Cmd, "\",\"");
-    if (ESP8266_AppendEsc(username) == 0U)
-    {
-        return ESP8266_ERR_PARAM;
-    }
-    (void)strcat(s_Cmd, "\",\"\",0,0,\"\"\r\n");
+    (void)snprintf(s_Cmd, sizeof(s_Cmd),
+        "AT+MQTTUSERCFG=0,1,\"%s\",\"%s\",\"\",0,0,\"\"\r\n", clientId, username);
 
     st = ESP8266_Exec("OK", ESP8266_TIMEOUT);
     if (st != ESP8266_OK)
@@ -167,12 +130,7 @@ ESP8266_Status ESP8266_MQTT_SetParam(const char *clientId, const char *username,
     }
 
     /* 密码单独发: Token 超过 MQTTUSERCFG 里 password 字段的 64 字节上限 */
-    (void)strcpy(s_Cmd, "AT+MQTTPASSWORD=0,\"");
-    if (ESP8266_AppendEsc(password) == 0U)
-    {
-        return ESP8266_ERR_PARAM;
-    }
-    (void)strcat(s_Cmd, "\"\r\n");
+    (void)snprintf(s_Cmd, sizeof(s_Cmd), "AT+MQTTPASSWORD=0,\"%s\"\r\n", password);
 
     st = ESP8266_Exec("OK", ESP8266_TIMEOUT);
     if (st != ESP8266_OK)
@@ -181,7 +139,8 @@ ESP8266_Status ESP8266_MQTT_SetParam(const char *clientId, const char *username,
     }
 
     /* keepalive 必须显式给(模块把 0 改成 120 秒); 开清洁会话; 遗嘱不用 */
-    (void)sprintf(s_Cmd, "AT+MQTTCONNCFG=0,%u,0,\"\",\"\",0,0\r\n", (unsigned)keepalive);
+    (void)snprintf(s_Cmd, sizeof(s_Cmd),
+        "AT+MQTTCONNCFG=0,%u,0,\"\",\"\",0,0\r\n", (unsigned)keepalive);
 
     return ESP8266_Exec("OK", ESP8266_TIMEOUT);
 }
@@ -189,21 +148,12 @@ ESP8266_Status ESP8266_MQTT_SetParam(const char *clientId, const char *username,
 /**
  * @brief  连 MQTT Broker, 见 esp8266.h
  */
-ESP8266_Status ESP8266_MQTT_ConnectBroker(const char *host, uint16_t port)
+ESP8266_Status ESP8266_MQTT_ConnectBroker(const char host[], uint16_t port)
 {
-    if (host == NULL)
-    {
-        return ESP8266_ERR_PARAM;
-    }
-
-    /* AT+MQTTCONN=0,"<host>",<port>,0 —— <reconnect> 传 0: 模块不自己重连,
-     * 交给任务层"连续失败 N 次就整个重来" */
-    (void)strcpy(s_Cmd, "AT+MQTTCONN=0,\"");
-    if (ESP8266_AppendEsc(host) == 0U)
-    {
-        return ESP8266_ERR_PARAM;
-    }
-    (void)sprintf(&s_Cmd[strlen(s_Cmd)], "\",%u,0\r\n", (unsigned)port);
+    /* AT+MQTTCONN=0,"<host>",<port>,0 —— 域名里不会有 " 和 ,, 直接拼;
+     * <reconnect> 传 0: 模块不自己重连, 交给任务层"连续失败 N 次就整个重来" */
+    (void)snprintf(s_Cmd, sizeof(s_Cmd), "AT+MQTTCONN=0,\"%s\",%u,0\r\n",
+                   host, (unsigned)port);
 
     /* 匹配 "+MQTTCONNECTED": "CONNECTED" 是 "+MQTTDISCONNECTED" 的子串 */
     return ESP8266_Exec("+MQTTCONNECTED", ESP8266_MQTT_TIMEOUT);
@@ -212,26 +162,12 @@ ESP8266_Status ESP8266_MQTT_ConnectBroker(const char *host, uint16_t port)
 /**
  * @brief  发布一条消息, 见 esp8266.h
  */
-ESP8266_Status ESP8266_MQTT_Publish(const char *topic, const char *data)
+ESP8266_Status ESP8266_MQTT_Publish(const char topic[], const char data[])
 {
-    if (topic == NULL || data == NULL)
-    {
-        return ESP8266_ERR_PARAM;
-    }
-
-    /* AT+MQTTPUB=0,"<主题>","<载荷>",0,0 —— 两段都要转义, 否则模块把 JSON 里的
-     * 逗号当参数分隔符, 回 +MQTTPUB:FAIL */
-    (void)strcpy(s_Cmd, "AT+MQTTPUB=0,\"");
-    if (ESP8266_AppendEsc(topic) == 0U)
-    {
-        return ESP8266_ERR_PARAM;
-    }
-    (void)strcat(s_Cmd, "\",\"");
-    if (ESP8266_AppendEsc(data) == 0U)
-    {
-        return ESP8266_ERR_PARAM;
-    }
-    (void)strcat(s_Cmd, "\",0,0\r\n");
+    /* AT+MQTTPUB=0,"<主题>","<载荷>",0,0 —— 载荷里的 " 和 , 得是已经转义好的
+     * \" 和 \, (见 app_json.c): 模块按逗号切参数, 不转义会把 JSON 切碎 */
+    (void)snprintf(s_Cmd, sizeof(s_Cmd), "AT+MQTTPUB=0,\"%s\",\"%s\",0,0\r\n",
+                   topic, data);
 
     return ESP8266_Exec("OK", ESP8266_TIMEOUT);
 }
@@ -276,7 +212,7 @@ static uint16_t ESP8266_RxHead(void)
 }
 
 /* 从环形缓冲取最多 max 字节到 dst, 返回实际取了多少(0 = 没新数据) */
-static uint16_t ESP8266_RxPop(uint8_t *dst, uint16_t max)
+static uint16_t ESP8266_RxPop(uint8_t dst[], uint16_t max)
 {
     uint16_t head  = ESP8266_RxHead();
     uint16_t moved = 0;
@@ -311,46 +247,10 @@ static void ESP8266_ClearRxBuf(void)
     s_RxLen = 0;
 }
 
-/* --------------------------------- 拼命令 --------------------------------- */
-
-/* 把 src 转义后接到 s_Cmd 末尾 (前面的内容不动), 放不下返回 0.
- * 转义 = 给 " \ , 前面补 '\'. 三种字符必须一趟处理完, 分两趟会得到 \\\" */
-static uint8_t ESP8266_AppendEsc(const char *src)
-{
-    uint16_t n    = (uint16_t)strlen(s_Cmd);
-    uint16_t room;
-
-    /* 最多拼到 256 - 16: 超过 256 的命令本来也不会发; 余量留给收尾字面量 */
-    room = (n < (uint16_t)(ESP8266_AT_CMD_MAX - ESP8266_CMD_TAIL_ROOM))
-           ? (uint16_t)(ESP8266_AT_CMD_MAX - ESP8266_CMD_TAIL_ROOM - n)
-           : 0U;
-
-    while (*src != '\0')
-    {
-        if (*src == '"' || *src == '\\' || *src == ',')
-        {
-            if (room < 3U) { break; }                   /* 补的 '\' + 字符 + '\0' */
-            s_Cmd[n++] = '\\';
-            room--;
-        }
-        else if (room < 2U)
-        {
-            break;
-        }
-
-        s_Cmd[n++] = *src++;
-        room--;
-    }
-
-    s_Cmd[n] = '\0';
-
-    return (*src == '\0') ? 1U : 0U;                    /* 没写完就是放不下 */
-}
-
 /* -------------------------------- 命令收发 -------------------------------- */
 
 /* 发 s_Cmd 里拼好的命令并等应答, 超时或模块回 ERROR/FAIL 就带着原因返回 */
-static ESP8266_Status ESP8266_Exec(const char *ack, uint32_t timeoutMs)
+static ESP8266_Status ESP8266_Exec(const char ack[], uint32_t timeoutMs)
 {
     uint16_t len = (uint16_t)strlen(s_Cmd);
     uint32_t tick;
@@ -412,7 +312,7 @@ static ESP8266_Status ESP8266_Exec(const char *ack, uint32_t timeoutMs)
 }
 
 /* 发一条字面量命令. 带用户数据的先把命令拼进 s_Cmd, 再直接调 Exec */
-static ESP8266_Status ESP8266_SendCmd(const char *cmd, const char *ack, uint32_t timeoutMs)
+static ESP8266_Status ESP8266_SendCmd(const char cmd[], const char ack[], uint32_t timeoutMs)
 {
     (void)strcpy(s_Cmd, cmd);
 

@@ -1,7 +1,7 @@
 /* ============================================================================
  * WiFi 通信任务: 联网 + MQTT 上报, 所有碰 ESP8266 的事都在这里
  *
- * 业务策略在本文件, AT 指令与网络细节在 BSP/ESP8266.
+ * 业务策略在本文件, AT 指令与网络细节在 BSP/ESP8266, 报文在 APP/app_json.
  * 驱动是顺序阻塞的(发一条等一条), 一次连接最坏占十几秒, 所以要独立任务跑.
  * 上报: 值不变就不发, 变了下一条立刻发.
  * ========================================================================== */
@@ -10,8 +10,8 @@
 #include "app_config.h"
 #include "app_main.h"
 #include <stdio.h>
-#include <string.h>
 
+#include "app_json.h"
 #include "dht11.h"
 #include "esp8266.h"
 
@@ -72,12 +72,8 @@ void TaskWifiCreate(void)
 /* ======================== 任务本体: 先联网, 再上报 ======================== */
 static void TaskWifi(void *argument)
 {
-    DHT11_Data dht;
-    char       params[64];              /* 本次采样的 JSON 属性段 */
-    char       payload[128];            /* 完整报文 */
-    static char     reported[64];       /* 当前值: 上次发成功的那份 params */
-    static uint32_t msgId = 0;          /* 报文序号, 每次上报 +1 填进 "id" */
-    uint8_t    failStreak;              /* 连续失败计数, 成功一次就归零 */
+    DHT11_Data   dht;
+    uint8_t      failStreak;            /* 连续失败计数, 成功一次就归零 */
 
     (void)argument;                     /* 未使用, 显式忽略 */
 
@@ -100,28 +96,19 @@ static void TaskWifi(void *argument)
                 break;                  /* 队列异常, 退出去重连 */
             }
 
-            /* 属性名必须和控制台"功能定义"里完全一致, 大小写敏感.
-             * 值写 "%d.0": 属性是浮点型, 补 .0 又不用链进 float 版 printf */
-            (void)snprintf(params, sizeof(params),
-                "{\"Temp\":{\"value\":%d.0},\"Hum\":{\"value\":%d.0}}",
-                dht.temperature, dht.humidity);
+            AppJson_SetTemp(dht.temperature);
+            AppJson_SetHumi(dht.humidity);
 
-            /* 值没变就不发; 比的是整段 JSON, 以后加属性不用动这里 */
-            if (strcmp(params, reported) == 0)
+            /* 值没变就没必要发, 报文也不用取 */
+            if (AppJson_Report() == 0)
             {
                 continue;
             }
 
-            /* 补报文头, 凑成物模型要的 {"id","version","params"} 三件套.
-             * id 只在这时候 +1 */
-            (void)snprintf(payload, sizeof(payload),
-                "{\"id\":\"%lu\",\"version\":\"1.0\",\"params\":%s}",
-                (unsigned long)(++msgId), params);
-
             /* 载荷里的 " 和 , 由驱动负责转义, 这里照常写合法 JSON */
-            if (ESP8266_MQTT_Publish(CFG_MQTT_PUB_TOPIC, payload) == ESP8266_OK)
+            if (ESP8266_MQTT_Publish(CFG_MQTT_PUB_TOPIC, AppJson_Buf) == ESP8266_OK)
             {
-                (void)strcpy(reported, params);
+                AppJson_Commit();       /* 发出去了才认它作当前值 */
                 failStreak = 0;
             }
             else

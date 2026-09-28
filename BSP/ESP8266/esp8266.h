@@ -34,7 +34,7 @@ extern UART_HandleTypeDef huart2;           /* USART2, 定义在 usart.c */
 
 /* -------------------------------- 缓冲大小 -------------------------------- */
 #define ESP8266_AT_CMD_MAX    256           /* 单条指令上限, 模块文档写死的 */
-#define ESP8266_CMD_BUF_SIZE  288           /* 命令区: 比 256 多留 32, 给拼完字符串后接的数字尾巴 */
+#define ESP8266_CMD_BUF_SIZE  288           /* 命令缓冲: 最长一条拼完约 150 字节, 留够 */
 #define ESP8266_RX_BUF_SIZE   512           /* 解析缓冲: 累积整条应答, 供 strstr 匹配 */
 #define ESP8266_DMA_BUF_SIZE  256           /* DMA 环形缓冲: 装两次搬运之间的突发 */
 
@@ -63,7 +63,7 @@ ESP8266_Status ESP8266_Init(void);
  * @param  password  密码
  * @retval ESP8266_OK = 成功, 其余 = 失败原因
  */
-ESP8266_Status ESP8266_ConnectAP(const char *ssid, const char *password);
+ESP8266_Status ESP8266_ConnectAP(const char ssid[], const char password[]);
 
 /* ================================== MQTT ================================== */
 
@@ -80,8 +80,8 @@ ESP8266_Status ESP8266_ConnectAP(const char *ssid, const char *password);
  * @param  keepalive  心跳周期(s)
  * @retval ESP8266_OK = 成功, 其余 = 失败原因
  */
-ESP8266_Status ESP8266_MQTT_SetParam(const char *clientId, const char *username,
-                                     const char *password, uint16_t keepalive);
+ESP8266_Status ESP8266_MQTT_SetParam(const char clientId[], const char username[],
+                                     const char password[], uint16_t keepalive);
 
 /**
  * @brief  连 broker. 必须匹配 "+MQTTCONNECTED", 不能只写 "CONNECTED"
@@ -90,15 +90,15 @@ ESP8266_Status ESP8266_MQTT_SetParam(const char *clientId, const char *username,
  * @param  port  端口
  * @retval ESP8266_OK = 成功, 其余 = 失败原因
  */
-ESP8266_Status ESP8266_MQTT_ConnectBroker(const char *host, uint16_t port);
+ESP8266_Status ESP8266_MQTT_ConnectBroker(const char host[], uint16_t port);
 
 /**
- * @brief  发布一条消息 (QoS 0). 主题和载荷里的 " \ , 由本函数转义;
- *         返回 OK 只代表模块收下了指令
+ * @brief  发布一条消息 (QoS 0). 载荷里的 " 和 , 要调用方先转义成 \" 和 \,
+ *         (见 app_json.c); 返回 OK 只代表模块收下了指令
  * @param  topic  主题
- * @param  data   载荷
+ * @param  data   载荷, 已转义
  * @retval ESP8266_OK = 成功, 其余 = 失败原因
  */
-ESP8266_Status ESP8266_MQTT_Publish(const char *topic, const char *data);
+ESP8266_Status ESP8266_MQTT_Publish(const char topic[], const char data[]);
 
 #endif /* __ESP8266_H */

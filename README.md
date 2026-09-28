@@ -32,6 +32,7 @@ DHT11 任务 ──队列(4 条)──> WiFi 任务 ──AT 指令──> ESP82
 APP/          业务层
   app_main.c      总入口：建数据通道 + 建任务
   app_config.h    WiFi / MQTT 参数，换环境只改这里
+  app_json.c      上报报文：感应器的值攒成一份 JSON，加传感器就在这儿加一行
   task_dht11.c    DHT11 采集任务
   task_wifi.c     联网 + 上报任务
   task_light.c    光照任务（占位，未实现）
@@ -44,20 +45,23 @@ freertos/     FreeRTOS 内核 + 移植层
 MDK-ARM/      Keil 工程
 ```
 
-## 两个设计取舍
+## 三个设计取舍
 
 **串口接收用 DMA 环形缓冲 + 轮询 CNDTR，不用接收中断。**
 F1 的串口只有一个字节的接收寄存器，没有 FIFO。而 DHT11 读一次要关中断约 4ms，115200 下这段时间会来几十个字节，用 RXNE 中断收必丢。
 
-**MQTT 报文走 `AT+MQTTPUB`，主题和载荷里的 `"` `\` `,` 都得转义。**
-AT 指令按逗号切参数，JSON 载荷里全是逗号和引号，不转义会被切成多余的参数，模块直接回 `+MQTTPUB:FAIL`。
+**MQTT 报文走 `AT+MQTTPUB`，JSON 里的 `"` 和 `,` 得写成 `\"` 和 `\,`。**
+AT 指令按逗号切参数，JSON 载荷里全是逗号和引号，不转义会被切成多余的参数，模块直接回 `+MQTTPUB:FAIL`。转义符是直接写在 `app_json.c` 格式串里的，没另做一层转义函数。
+
+**按课设标准写，不按工业标准写。**
+驱动的参数不做 `NULL` 检查，每条 AT 命令用一句 `snprintf` 拼完就发，超长会截断（由 `ESP8266_Exec` 里的长度检查兜住，不会发出半条）。目标是能跑通、能读懂，不是产品级加固。
 
 ## 编译
 
 Keil MDK-ARM 打开 `MDK-ARM/project.uvprojx`（ARMCC V5.06）。当前占用：
 
 ```
-Code=16740  RO-data=440  RW-data=160  ZI-data=12912
+Code=16512  RO-data=440  RW-data=168  ZI-data=13104
 ```
 
 ## 跑起来
