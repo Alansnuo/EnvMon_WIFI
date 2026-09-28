@@ -33,6 +33,9 @@ Drivers/CMSIS/NN/
 # 笔记 PDF（与 详解/*.md 内容重复，约 36M）
 笔记/
 
+# 详解笔记（本地留着，不发布）
+详解/
+
 # 编辑器自动生成本机专属文件（Keil Assistant 打开工程时会重新生成）
 MDK-ARM/.vscode/
 
