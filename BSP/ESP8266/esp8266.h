@@ -3,19 +3,14 @@
  * ESP8266 WiFi 模块驱动函数声明
  * @date 2026.09.23
  *
- * 说明: 基于 USART2 (DMA 环形接收 + 中断发送), 把 WiFi / MQTT 操作翻译成 AT 指令.
- *       顺序阻塞写法: 每个接口内部就是"发一条命令 → 等应答 → 再发下一条", 等的时候
- *       通过 BSP_DelayMs 让出 CPU (任务里是 vTaskDelay, 裸机里是 HAL_Delay), 但接口
- *       返回之前调用者不会往下走 —— 只适合"有独立任务专门跑网络"的用法, 比如本项目:
- *
- *           ESP8266_Init();  ESP8266_ConnectAP(ssid, pwd);  ...
- *
- *       别放进裸机主循环: 一次连不上的流程最坏能连续占一分钟 (每条命令都要等到超时).
+ * 基于 USART2 (DMA 环形接收 + 中断发送), 把 WiFi / MQTT 操作翻译成 AT 指令.
+ * 顺序阻塞: 每个接口内部"发一条命令 → 等应答 → 再发下一条", 返回前调用者不会
+ * 往下走 —— 只适合放在独立任务里, 一次连不上的流程最坏能连续占一分钟.
  *
  * 用法: Init() → ConnectAP() → MQTT_SetParam() → MQTT_ConnectBroker() → 循环 Publish()
  *
- * 注意: 指令名以本固件实际支持的为准: 老资料里的 AT+MQTTCFG 在这儿叫
- *       AT+MQTTUSERCFG + AT+MQTTCONNCFG; 心跳由模块自己按 keepalive 发
+ * 指令名以本固件实际支持的为准: 老资料里的 AT+MQTTCFG 在这儿叫
+ * AT+MQTTUSERCFG + AT+MQTTCONNCFG; 心跳由模块自己按 keepalive 发
  */
 
 #ifndef __ESP8266_H
@@ -24,6 +19,9 @@
 #include "main.h"
 
 /* -------------------------------- 硬件接口 -------------------------------- */
+
+extern UART_HandleTypeDef huart2;           /* USART2, 定义在 usart.c */
+
 #define ESP8266_UART          huart2        /* USART2: PA2=TX, PA3=RX */
 #define ESP8266_RST_PIN       GPIO_PIN_1    /* RST: PB1 */
 #define ESP8266_RST_PORT      GPIOB
@@ -52,7 +50,7 @@ typedef enum {
 /* ================================= 初始化 ================================= */
 
 /**
- * @brief  初始化模块: 配 RST 引脚 + 挂上 DMA 接收 + 复位探活
+ * @brief  初始化模块: 复位 + 挂上 DMA 接收 + 探活
  * @retval ESP8266_OK = 成功, 其余 = 失败原因
  */
 ESP8266_Status ESP8266_Init(void);
@@ -86,8 +84,8 @@ ESP8266_Status ESP8266_MQTT_SetParam(const char *clientId, const char *username,
                                      const char *password, uint16_t keepalive);
 
 /**
- * @brief  连 broker. 成功 = 收到 "+MQTTCONNECTED" —— 别图省事匹配 "CONNECTED",
- *         "+MQTTDISCONNECTED" 里含着这个子串
+ * @brief  连 broker. 必须匹配 "+MQTTCONNECTED", 不能只写 "CONNECTED"
+ *         ("+MQTTDISCONNECTED" 里含着它)
  * @param  host  域名或 IP (传域名的话模块自己做 DNS)
  * @param  port  端口
  * @retval ESP8266_OK = 成功, 其余 = 失败原因
@@ -96,7 +94,7 @@ ESP8266_Status ESP8266_MQTT_ConnectBroker(const char *host, uint16_t port);
 
 /**
  * @brief  发布一条消息 (QoS 0). 主题和载荷里的 " \ , 由本函数转义;
- *         OK 只代表模块收下了指令, 平台收没收到得去平台看
+ *         返回 OK 只代表模块收下了指令
  * @param  topic  主题
  * @param  data   载荷
  * @retval ESP8266_OK = 成功, 其余 = 失败原因
