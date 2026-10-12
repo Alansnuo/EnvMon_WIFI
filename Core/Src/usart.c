@@ -116,7 +116,23 @@ void HAL_UART_MspInit(UART_HandleTypeDef* uartHandle)
 
   /* USER CODE BEGIN USART1_MspInit 1 */
 
-    /* 天问语音模块要在 USART1 上收 6 字节帧, 必须开 NVIC.
+    /* ⚠️ PA10(USART1_RX) 出厂配置是 GPIO_NOPULL —— 必须改成上拉。
+     *
+     * 为什么: 天问模块没插(或掉电)的时候这根线是**悬空**的, 线上噪声会不停
+     * 触发 RXNE 中断 —— 变成中断风暴, 把 CPU 几乎全吃光. 表现是"别的功能莫名
+     * 其妙变慢/失败": ESP8266 驱动是"发一条 AT → 轮询等应答"的, 被拖垮之后
+     * 每条命令都超时, WiFi 就永远连不上, 而且换 WiFi 模块也没用.
+     *
+     * UART 的空闲电平本来就是高, 所以给它上拉是正确做法, 不是权宜之计.
+     * (内部上拉约 40kΩ, 弱; 模块插上后由模块的推挽输出主导, 不受影响.)
+     *
+     * ⚠️ 写在 USER CODE 段里: CubeMX 重新生成时会先按 .ioc 写成 NOPULL,
+     *    然后执行本段把它改回来 —— 顺序正好. 所以不用去动 project.ioc. */
+    GPIO_InitStruct.Pin  = GPIO_PIN_10;
+    GPIO_InitStruct.Pull = GPIO_PULLUP;
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+    /* 天问语音模块要在 USART1 上收数据帧, 必须开 NVIC.
      * 优先级 6: 必须 >= configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY(=5), 否则
      * 中断里调 FreeRTOS 的 ...FromISR API 会踩 configASSERT.
      * (本中断目前只读 DR、不碰 RTOS, 设 6 是留余量 —— 数值越大优先级越低.)

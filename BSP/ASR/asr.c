@@ -1,101 +1,97 @@
 /* ============================================================================
- * 天问语音模块 (ASRPRO) 帧解析
+ * 天问语音模块 (ASRPRO) —— 字符串收行 + 发送
  *
- * 帧格式: 0x55 0xAA 0x02 cmd data xor     校验 = 前 5 字节逐个异或
- *
- * 三状态机:
- *   状态 0: 收到 0x55 → 存下, 进状态 1   (收到别的 → 留在状态 0)
- *   状态 1: 收到 0xAA → 存下, 进状态 2   (收到别的 → 回状态 0, 重新找帧头)
- *   状态 2: 任意字节都存下, 计数到 6 就校验
- *           校验通过 → 置 Asr_RxFlag; 无论对错都回状态 0
- *
- * 为什么用状态机而不是"收满 6 个再检查帧头": 中途掉一个字节时, 状态机会自动
- * 回到状态 0 重新找 0x55, **不会永久错位**. 后者一旦错位就再也对不上了.
- *
- * 中断里只收不算, 动作全部留给 APP/task_asr.c —— 中断要尽量短.
+ * 收: 中断里逐字节攒到 Asr_Line, 遇到 \r 或 \n 就置 Asr_LineReady。
+ *     只攒不算, 动作全留给 APP/task_asr.c —— 中断要尽量短。
+ * 发: 顺序阻塞的 HAL_UART_Transmit。每条就十几个字节, 阻塞时间很短。
  * ========================================================================== */
 
 #include "asr.h"
+#include <string.h>
+#include <stdio.h>
 
-volatile uint8_t  Asr_RxFlag = 0U;
-uint8_t           Asr_RxPacket[ASR_FRAME_LEN];
-volatile uint32_t Asr_RxByteCount = 0U;     /* 【诊断用, 查完可删】 */
+volatile char    Asr_Line[ASR_LINE_MAX];
+volatile uint8_t Asr_LineLen   = 0U;
+volatile uint8_t Asr_LineReady = 0U;
 
-/* 前 len 个字节逐个异或 */
-static uint8_t Asr_CalXor(const uint8_t *data, uint32_t len)
-{
-    uint8_t  sum = 0U;
-    uint32_t i;
+/* USART1 现在专职本模块: 工程里已没有 printf 重定向, 不存在调试文本混进
+ * 数据帧的问题 (为什么要这样, 见 asr.h 的头部说明)。 */
 
-    for (i = 0U; i < len; i++)
-    {
-        sum ^= data[i];
-    }
-    return sum;
-}
-
-/* 逐字节状态机.
- * ⚠️ 那两个 static 变量在中断上下文里是安全的 —— USART1 的中断不可能重入
- *    (同一个中断源在 ISR 执行期间被屏蔽). 但**绝对不要**在任务里也调这个函数,
- *    那样 state/idx 会被两个上下文同时改. */
+/* 逐字节收行。
+ * ⚠️ Asr_LineLen/Asr_LineReady 在中断和任务之间共享, 配合规则:
+ *    任务看到 Asr_LineReady==1 后, 先把内容拷走、再清 Len 和 Ready;
+ *    中断只在 Ready==0 时才往缓冲里追加。这样不会撕裂。 */
 void Asr_RxByteFromISR(uint8_t byte)
 {
-    static uint8_t state = 0U;          /* 0=等 0x55, 1=等 0xAA, 2=攒数据 */
-    static uint8_t idx   = 0U;
-
-    Asr_RxByteCount++;                  /* 【诊断用, 查完可删】 */
-
-    switch (state)
+    if (byte == (uint8_t)'\r' || byte == (uint8_t)'\n')
     {
-        case 0U:
-            if (byte == 0x55U)
-            {
-                Asr_RxPacket[idx] = byte;
-                idx++;
-                state = 1U;
-            }
-            break;
+        if (Asr_LineLen > 0U)
+        {
+            Asr_Line[Asr_LineLen] = '\0';       /* 补字符串结尾, 方便 strcmp */
+            Asr_LineReady = 1U;
+        }
+        return;                                 /* 收尾字符本身不入缓冲 */
+    }
 
-        case 1U:
-            if (byte == 0xAAU)
-            {
-                Asr_RxPacket[idx] = byte;
-                idx++;
-                state = 2U;
-            }
-            else
-            {
-                idx   = 0U;             /* 帧头不完整, 重新找 */
-                state = 0U;
-            }
-            break;
+    if (Asr_LineReady != 0U)
+    {
+        return;                                 /* 上一行还没被任务取走, 丢弃 */
+    }
 
-        case 2U:
-            Asr_RxPacket[idx] = byte;
-            idx++;
-            if (idx >= ASR_FRAME_LEN)
-            {
-                if (Asr_CalXor(Asr_RxPacket, ASR_FRAME_LEN - 1U) ==
-                    Asr_RxPacket[ASR_FRAME_LEN - 1U])
-                {
-                    Asr_RxFlag = 1U;    /* 交给任务去处理, 中断里不做动作 */
-                }
-                idx   = 0U;
-                state = 0U;             /* 无论校验对错都回去找下一个帧头 */
-            }
-            break;
-
-        default:
-            idx   = 0U;
-            state = 0U;
-            break;
+    if (Asr_LineLen < (ASR_LINE_MAX - 1U))
+    {
+        Asr_Line[Asr_LineLen] = (char)byte;
+        Asr_LineLen++;
+    }
+    else
+    {
+        Asr_LineLen = 0U;                       /* 超长: 直接丢掉重来, 防错位 */
     }
 }
 
 void Asr_Init(void)
 {
-    /* 直接开 RXNE 中断, 中断里直接读 DR (04 篇第 1 步的"做法 A").
-     * 不用 HAL_UART_Receive_IT: 那个是单次的, 必须每收一个字节重挂一次,
-     * 忘了重挂就只收得到第一个字节. */
+    /* 直接开 RXNE 中断, 中断里直接读 DR (04 篇的"做法 A")。
+     * 不用 HAL_UART_Receive_IT: 那个是单次的, 必须每收一个字节重挂一次。 */
     __HAL_UART_ENABLE_IT(&ASR_UART, UART_IT_RXNE);
+}
+
+/* ------------------------------- 发送 ------------------------------- */
+
+static void Asr_Write(const char *s)
+{
+    /* HAL_UART_Transmit 是阻塞轮询, 每条就十几个字节, 窗口很短,
+     * 中途不会主动让出 CPU。 */
+    (void)HAL_UART_Transmit(&ASR_UART, (uint8_t *)s, (uint16_t)strlen(s), 100U);
+}
+
+void Asr_SendString(const char *s)
+{
+    Asr_Write(s);
+    Asr_Write("\r\n");
+}
+
+void Asr_SendEnv(int temp, int humi, uint8_t light)
+{
+    char buf[24];
+    /* 格式: "0 <温度> <湿度> <光线等级>" —— 模块端用 parseInt 连续取数 */
+    (void)snprintf(buf, sizeof(buf), "%u %d %d %u\r\n",
+                   (unsigned)ASR_ACT_ENV, temp, humi, (unsigned)light);
+    Asr_Write(buf);
+}
+
+void Asr_SendAlarm(uint8_t code)
+{
+    char buf[16];
+    (void)snprintf(buf, sizeof(buf), "%u %u\r\n",
+                   (unsigned)ASR_ACT_ALARM, (unsigned)code);
+    Asr_Write(buf);
+}
+
+void Asr_SendNum(int value)
+{
+    char buf[16];
+    (void)snprintf(buf, sizeof(buf), "%u %d\r\n",
+                   (unsigned)ASR_ACT_NUM, value);
+    Asr_Write(buf);
 }

@@ -5,57 +5,71 @@
 #include <stdint.h>
 
 /* ============================================================================
- * 天问语音模块 (ASRPRO) —— 6 字节定长帧的接收与解析
+ * 天问语音模块 (ASRPRO) —— **字符串**协议
  *
- * 模块接在 USART1 (PA9/PA10) 上, 和调试 printf **共用一路**. 共用为什么安全:
- *   printf 输出全是 ASCII, 而帧头要 0x55 0xAA —— 0xAA 不是 ASCII 字符, 所以
- *   printf 刷得再欢也伪造不出一条指令; 反过来模块的字节流也形不成 printf 看到的
- *   有意义内容. 详见 04 篇.
+ * 模块接在 USART1 (PA9/PA10), **这一路串口专职语音**:
+ * 工程里已经没有 printf 重定向 (fputc 已删), USART1 上只有本模块的数据帧。
+ *
+ * ⚠️ 模块收字符串是"按时间间隔判断一帧结束"的。若以后想恢复调试打印,
+ *    请把 printf 重定向到别的串口(如 USART3 PB10/PB11), 不要回到 USART1 ——
+ *    调试文本会和真正的数据帧糊在一起; 更糟的是不含数字的文本会让模块端
+ *    parseInt 超时返回 0, 而 0 正好是"播报环境"的动作码。
+ *
+ * 协议:
+ *   MCU → 模块   "<动作码> <数值...>\r\n"
+ *                  0 <温度> <湿度> <光线等级>    播报环境
+ *                  1 <告警码>                    语音告警
+ *                  2 <数值>                      只播报一个数字(语音问答)
+ *   模块 → MCU   "TEMP\r\n" / "HUMI\r\n" / "LUX\r\n"   请求某一项数据
  *
  * ⚠️ 调试助手的 TX **绝对不能**接到 PA10: 那根线上已经有模块的 TX 在驱动,
- *    两个输出顶在一起会互相干扰(严重时损坏 IO). 调试助手只能单向"听".
- *
- * ⚠️ 波特率: 模块的串口波特率是在**它自己的固件里配的**(参考工程用的是 9600),
- *    而这里的 USART1 是 115200. 两边必须一致 —— 推荐在天问 Block 里把模块改成
- *    115200, 这样 printf 不受影响.
+ *    两个输出顶在一起会互相干扰(严重时可损坏 IO)。调试助手只能单向"听"。
  * ========================================================================== */
 
 extern UART_HandleTypeDef huart1;           /* 定义在 Core/Src/usart.c */
-#define ASR_UART      huart1
+#define ASR_UART        huart1
+#define ASR_UART_IRQn   USART1_IRQn
 
-/* 帧格式: [0]0x55 [1]0xAA [2]长度(=2) [3]cmd [4]data [5]xor(前 5 字节逐个异或) */
-#define ASR_FRAME_LEN   6U
+/* 模块发来的请求字符串 */
+#define ASR_REQ_TEMP    "TEMP"
+#define ASR_REQ_HUMI    "HUMI"
+#define ASR_REQ_LUX     "LUX"
 
-/* 命令码 —— 对应"天问模块固件里配的识别项".
- * ⚠️ 这些编号**不是协议规定的**, 是天问 Block 图形化界面里给每条语音指令分配的.
- *    参考工程的 1~7 只对参考工程那份固件有效; 你的模块刷的是哪份固件, 就只有
- *    那份的命令表. 所以先用 task_asr.c 的原始打印把每条命令的真实字节抄下来核对. */
-#define ASR_CMD_LED        1U       /* 控制 LED 开关      data: 1=开 0=关 */
-#define ASR_CMD_FAN        2U       /* 控制风扇开关       参考工程用; 本板没风扇 */
-#define ASR_CMD_MOTOR      3U       /* 控制步进电机(窗帘) 本板没有 */
-#define ASR_CMD_MODE       4U       /* 切换系统模式       data: 1=自动 0=手动 */
-#define ASR_CMD_LED_LEVEL  5U       /* 设置 LED 亮度档位  data: 0~10, 是"档位"不是百分比 */
-#define ASR_CMD_FAN_LEVEL  6U       /* 设置风扇速度档位   本板没有 */
-#define ASR_CMD_HUMID      7U       /* 控制加湿器继电器   本板没有 */
+/* 动作码 */
+#define ASR_ACT_ENV     0U          /* 播报环境数据 */
+#define ASR_ACT_ALARM   1U          /* 播报语音告警 */
+#define ASR_ACT_NUM     2U          /* 只播报一个数字 */
 
-/* 收到一帧且校验通过. 中断里置 1, 任务里读到后清 0.
- * ⚠️ 必须 volatile: 它在中断里被改、在任务里读, 不加的话编译器可能把任务里的
- *    读操作提升成"永远不变"从而死循环. */
-extern volatile uint8_t Asr_RxFlag;
+/* 告警码 —— 必须和模块端积木里的 case 一一对应 */
+#define ASR_ALARM_TEMP_HI   1U      /* 温度过高 */
+#define ASR_ALARM_TEMP_LO   2U      /* 温度过低 */
+#define ASR_ALARM_HUMI_HI   3U      /* 湿度过高 */
+#define ASR_ALARM_HUMI_LO   4U      /* 湿度过低 */
+#define ASR_ALARM_LUX_LO    5U      /* 光照不足 */
+#define ASR_ALARM_LUX_HI    6U      /* 光照过强 */
+#define ASR_ALARM_OK        7U      /* 已恢复正常 */
 
-/* 最近一帧的原始 6 字节: [0][1]帧头 [2]长度 [3]cmd [4]data [5]校验 */
-extern uint8_t Asr_RxPacket[ASR_FRAME_LEN];
+/* 光线等级 (发给模块, 决定播报"光线充足/偏暗/很暗") */
+#define ASR_LIGHT_DARK      0U
+#define ASR_LIGHT_OK        1U
+#define ASR_LIGHT_STRONG    2U
 
-/* 累计收到过多少个字节(含帧头噪声/校验失败的).
- * 【诊断用】**不需要打印** —— 在 Keil 调试器里把它加到 watch 窗口就行:
- *   对着模块说一句指令, 这个数涨了 => USART1 中断和接线都是好的;
- *   一直是 0 => 中断没进来, 或模块压根没发. */
-extern volatile uint32_t Asr_RxByteCount;
+/* 收到一整行(遇到 \r 或 \n 收尾) */
+#define ASR_LINE_MAX    24
+extern volatile char    Asr_Line[ASR_LINE_MAX];
+extern volatile uint8_t Asr_LineLen;
+extern volatile uint8_t Asr_LineReady;      /* 中断置 1, 任务取走后清 0 */
 
-/* 打开 USART1 的 RXNE 接收中断. 在 App_Init() 里调一次 */
+/* 打开 USART1 的 RXNE 接收中断。在 App_Init() 里调一次 */
 void Asr_Init(void);
 
-/* 逐字节喂给帧状态机. **只允许在 USART1 中断里调** —— 任务里也调会竞态 */
+/* 逐字节喂给收行器。**只允许在 USART1 中断里调** */
 void Asr_RxByteFromISR(uint8_t byte);
+
+/* ============================ STM32 → 模块 ============================ */
+void Asr_SendString(const char *s);                 /* 原样发一段 + 换行 */
+void Asr_SendEnv(int temp, int humi, uint8_t light);/* 动作码 0 */
+void Asr_SendAlarm(uint8_t code);                   /* 动作码 1 */
+void Asr_SendNum(int value);                        /* 动作码 2 */
 
 #endif /* __ASR_H */

@@ -11,7 +11,11 @@
 
 typedef struct {
     uint8_t humidity;           /* 相对湿度 %RH, 整数部分 */
+    uint8_t humidity_dec;       /* 相对湿度 %RH, 小数部分
+                                 * ⚠️ DHT11 恒为 0(规格书里是预留字节);
+                                 *    DHT22/AM2302 才有真实的 0.1 分辨率 */
     uint8_t temperature;        /* 温度 ℃, 整数部分 */
+    uint8_t temperature_dec;    /* 温度 ℃, 小数部分 —— 同上, DHT11 恒为 0 */
 } DHT11_Data;
 
 /* 必须在 MX_GPIO_Init() 之后调用 (依赖 GPIOB 时钟) */

@@ -9,7 +9,6 @@
 #include "task_wifi.h"
 #include "app_config.h"
 #include "app_main.h"
-#include <stdio.h>
 
 #include "app_json.h"
 #include "dht11.h"
@@ -25,36 +24,39 @@ static uint8_t WifiConnect(void);
 
 /* ================================== 联网 ================================== */
 
-/* 复位模块 → 接热点 → 配 MQTT 参数 → 连 Broker. 失败返回 0, 由外层决定重试 */
+/* 复位模块 → 接热点 → 配 MQTT 参数 → 连 Broker. 失败返回 0, 由外层决定重试.
+ * 过程中同步更新 g_xWifiState, 让 OLED 能看出卡在哪一步. */
 static uint8_t WifiConnect(void)
 {
+    g_xWifiState = WIFI_STATE_CONNECTING;
+
     if (ESP8266_Init() != ESP8266_OK)
     {
-        printf("[WiFi] init failed\r\n");
+        g_xWifiState = WIFI_STATE_FAIL;
         return 0;
     }
 
     if (ESP8266_ConnectAP(CFG_WIFI_SSID, CFG_WIFI_PASSWORD) != ESP8266_OK)
     {
-        printf("[WiFi] connect failed\r\n");
+        g_xWifiState = WIFI_STATE_FAIL;
         return 0;
     }
-    printf("[WiFi] connected\r\n");
+    g_xWifiState = WIFI_STATE_AP_OK;        /* 热点通了, 接着搞 MQTT */
 
     if (ESP8266_MQTT_SetParam(CFG_MQTT_CLIENT_ID, CFG_MQTT_USERNAME,
                               CFG_MQTT_PASSWORD, CFG_MQTT_KEEPALIVE_S) != ESP8266_OK)
     {
-        printf("[WiFi] MQTT set param failed\r\n");
+        g_xWifiState = WIFI_STATE_FAIL;
         return 0;
     }
 
     if (ESP8266_MQTT_ConnectBroker(CFG_MQTT_HOST, CFG_MQTT_PORT) != ESP8266_OK)
     {
-        printf("[WiFi] MQTT connect failed\r\n");
+        g_xWifiState = WIFI_STATE_FAIL;
         return 0;
     }
-    printf("[WiFi] MQTT connected\r\n");
 
+    g_xWifiState = WIFI_STATE_MQTT_OK;
     return 1;
 }
 
@@ -64,7 +66,6 @@ void TaskWifiCreate(void)
     if (xTaskCreate(TaskWifi, "WiFi", APP_STACK_WIFI, NULL,
                     APP_PRIO_WIFI, NULL) != pdPASS)
     {
-        printf("ERROR: xTaskCreate(WiFi) failed (heap too small?)\r\n");
         Error_Handler();
     }
 }
@@ -83,7 +84,6 @@ static void TaskWifi(void *argument)
          * 卡死 / 半连接 / 只是 WiFi 掉了, 都能回到干净状态 */
         while (WifiConnect() == 0)
         {
-            printf("[WiFi] retry in %d s\r\n", WIFI_RETRY_DELAY_MS / 1000);
             vTaskDelay(pdMS_TO_TICKS(WIFI_RETRY_DELAY_MS));
         }
 
@@ -116,8 +116,6 @@ static void TaskWifi(void *argument)
                 failStreak++;
             }
         }
-
-        printf("[WiFi] publish failed %u times in a row, reconnecting\r\n",
-               (unsigned)failStreak);
+        /* 连续失败到阈值: 回到 for(;;) 顶部重连 */
     }
 }

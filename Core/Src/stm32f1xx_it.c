@@ -214,10 +214,12 @@ void USART2_IRQHandler(void)
   * 直接读 DR 顺手清 RXNE, **故意不调 HAL_UART_IRQHandler** —— 那个函数自己也会
   * 读一次 DR, 先读就把字节吃掉了, HAL 拿到的是空的(见 04 篇第 1 步"做法 A").
   *
+  * 收到的一律交给 Asr_RxByteFromISR() 去攒行(遇 \r 或 \n 算一行).
+  *
   * ⚠️ 放在 USER CODE 段里: CubeMX 重新生成这个文件时只保留 USER CODE 段.
   *    (project.ioc 里没勾 USART1 中断, 所以 CubeMX 不会自己生成这个函数.)
-  * ⚠️ 本工程每帧只有 6 字节、命令间隔几百毫秒, 不会溢出, 所以不处理 ORE.
-  *    万一以后发现"收几帧后就彻底收不到了", 就是 ORE 没清, 在这里补:
+  * ⚠️ 读 DR 同时也会清 ORE(F1 上读 SR 再读 DR 就清), 所以溢出不会把接收卡死.
+  *    万一以后发现"收几行后就彻底收不到了", 在这里补:
   *      if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_ORE)) { __HAL_UART_CLEAR_OREFLAG(&huart1); }
   */
 void USART1_IRQHandler(void)

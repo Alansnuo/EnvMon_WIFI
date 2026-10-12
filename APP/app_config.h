@@ -6,8 +6,8 @@
  * 仅宏定义，不包含头文件，可被任意文件包含
  * ========================================================================== */
 /* ========================= WiFi ========================= */
-#define CFG_WIFI_SSID         "EEB9-513"
-#define CFG_WIFI_PASSWORD     "EEB9-513"
+#define CFG_WIFI_SSID         "奈何神明耍诈"
+#define CFG_WIFI_PASSWORD     "G123456789"
 
 /* ========================= MQTT (OneNET) =========================
  * 使用明文1883端口，不使用TLS（ESP8266内存不足）
@@ -27,5 +27,16 @@
  * 属性名大小写敏感；同一设备ClientID不能同时在MQTTX和板子在线
  */
 #define CFG_MQTT_PUB_TOPIC    "$sys/v9cSbzDFqr/test1/thing/property/post"
+
+/* ===================== 阈值 (必做4：超限告警) =====================
+ * 现在写死在这里。等做了按键, 改成运行时变量 + 存 Flash 即可
+ * (task_asr.c 里 Asr_CheckAlarm() 读的就是这几个)。
+ * 光照还多一个用途: 分档决定模块播报"光线充足/偏暗/很暗"。 */
+#define CFG_TH_TEMP_UP        30        /* ℃   高于此值 → 温度过高 */
+#define CFG_TH_TEMP_DN        10        /* ℃   低于此值 → 温度过低 */
+#define CFG_TH_HUMI_UP        80        /* %RH 高于此值 → 湿度过高 */
+#define CFG_TH_HUMI_DN        30        /* %RH 低于此值 → 湿度过低 */
+#define CFG_TH_LUX_DN         100       /* lx  低于此值 → 光照不足(光线偏暗) */
+#define CFG_TH_LUX_UP         600       /* lx  高于此值 → 光照过强  */
 
 #endif /* __APP_CONFIG_H */

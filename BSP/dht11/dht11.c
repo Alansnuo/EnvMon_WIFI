@@ -126,8 +126,14 @@ exit:
     DHT11_HIGH();                                   /* 释放总线, 回到空闲 */
 
     if (ok && (buf[4] == (uint8_t)(buf[0] + buf[1] + buf[2] + buf[3]))) {
-        data->humidity    = buf[0];
-        data->temperature = buf[2];
+        data->humidity        = buf[0];
+        data->temperature     = buf[2];
+        /* buf[1]/buf[3] 是小数位。
+         * ⚠️ DHT11 规格书里这两字节**恒为 0** —— 只有 DHT22/AM2302 才有真的 0.1 分辨率。
+         *    有些 DHT11 兼容品会在这里塞垃圾, 所以夹到 0~9(屏上只显示一位小数),
+         *    免得显示成 ".37" 这种不像话的东西。 */
+        data->humidity_dec    = (buf[1] > 9U) ? 0U : buf[1];
+        data->temperature_dec = (buf[3] > 9U) ? 0U : buf[3];
         return 1;
     }
     return 0;

@@ -25,7 +25,6 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include <stdio.h>
 #include "app_main.h"     /* 应用层总入口: 任务创建全在 APP/ 里 */
 /* USER CODE END Includes */
 
@@ -106,7 +105,6 @@ int main(void)
   vTaskStartScheduler();
 
   /* 只有 heap 不足、连空闲任务都建不起来时, vTaskStartScheduler() 才会返回 */
-  printf("ERROR: vTaskStartScheduler() returned!\r\n");
   Error_Handler();
   /* USER CODE END 2 */
 
@@ -164,16 +162,9 @@ void SystemClock_Config(void)
 
 /* USER CODE BEGIN 4 */
 
-/**
-  * @brief  printf 重定向到 USART1
-  * @note   注意 timeout 用的是 HAL_MAX_DELAY —— 串口发不出去时会一直等在这里.
-  *         正常带 FreeRTOS 的工程会改成有限超时, 见《FreeRTOS驱动适配笔记》3.6.
-  */
-int fputc(int ch, FILE *f)
-{
-  HAL_UART_Transmit(&huart1, (uint8_t *)&ch, 1, HAL_MAX_DELAY);
-  return ch;
-}
+/* USART1 专职天问语音模块 (见 BSP/ASR/asr.h), 本工程不再有 printf 重定向:
+ * 串口助手那一路已撤掉, 各任务里的 printf 也全部清掉了。ESP8266 / ASR 拼
+ * 报文用的 snprintf 在各自模块内部完成, 不经过 fputc。 */
 /* USER CODE END 4 */
 
 /**

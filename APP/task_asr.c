@@ -1,85 +1,84 @@
 /* ============================================================================
- * 语音命令执行任务: 天问模块识别出指令 → 这里翻译成动作
- * 帧解析在 BSP/ASR/asr.c, 本文件只管"命令码 → 干什么"
+ * 语音任务 —— 三件事
+ *   1) 应答: 模块发 "TEMP"/"HUMI"/"LUX" → 回一个数值(动作码 2)
+ *   2) 定时播报 (必做3 的"定时"那一半): 每 APP_ASR_REPORT_PERIOD_MS 主动让模块
+ *      播报"当前温度X摄氏度，湿度百分之Y，光线…"
+ *   3) 阈值告警 (必做4): 每秒查一次, **只在告警状态变化时**播报, 免得反复念
  *
- * 现在处于**验证阶段**: 只打原始 6 字节, 不打命令码翻译.
- * 这是 04 篇验证步骤的"第二段" —— 先确认模块发得对不对, 再接动作.
+ * ⚠️ 按键相关的两条("按按键触发播报"和"按键设置阈值")暂时没做 —— 板上没有按键。
+ *    阈值先用 app_config.h 里的固定值; 以后加了按键, 改成运行时变量即可。
+ *
+ * 帧解析/收行在 BSP/ASR/asr.c, 本文件只管"什么时候发什么"。
  * ========================================================================== */
 
 #include "task_asr.h"
 #include "app_main.h"
-#include <stdio.h>
+#include "app_config.h"
+#include <string.h>
 
 #include "asr.h"
 
-/* 打印模式:
- *   0 = 只打原始 6 字节  ← 现在用这个, 验证模块, 输出最干净
- *   1 = 额外打印命令码翻译(cmd/data → 动作)
- * 等核对完模块的真实字节、把动作接到实际硬件时, 改回 1.
- * (也可以在 Keil 的 C/C++ → Define 里加 ASR_SHOW_DECODED=1 临时打开, 不用改代码.) */
-#ifndef ASR_SHOW_DECODED
-#define ASR_SHOW_DECODED    0
-#endif
-
 static void TaskAsr(void *argument);
 
-/* 命令码 → 动作. 默认关着, 见 ASR_SHOW_DECODED */
-#if ASR_SHOW_DECODED
-static void Asr_Decode(void)
+/* 光线分档: 01 = 过暗, 1 = 适宜, 2 = 过强。模块按这个等级决定播报哪一句 */
+static uint8_t Asr_LightLevel(int *lux_out)
 {
-    uint8_t cmd  = Asr_RxPacket[3];
-    uint8_t data = Asr_RxPacket[4];
+    int lux = (int)g_xLatestLux;
 
-    switch (cmd)
-    {
-        case ASR_CMD_LED:                           /* "开灯" / "关灯" */
-            printf("[ASR] cmd=%u data=%u -> LED %s\r\n", (unsigned)cmd, (unsigned)data,
-                   data ? "ON" : "OFF");
-            break;
+    *lux_out = lux;
 
-        case ASR_CMD_FAN:                           /* 板上没风扇, 预留 */
-            printf("[ASR] cmd=%u data=%u -> LED2 %s\r\n", (unsigned)cmd, (unsigned)data,
-                   data ? "ON" : "OFF");
-            break;
-
-        case ASR_CMD_MODE:                          /* "自动模式" / "手动模式" */
-            printf("[ASR] cmd=%u data=%u -> MODE %s\r\n", (unsigned)cmd, (unsigned)data,
-                   data ? "AUTO" : "MANUAL");
-            break;
-
-        case ASR_CMD_HUMID:                         /* 板上没加湿器, 预留蜂鸣器 */
-            printf("[ASR] cmd=%u data=%u -> BUZZER %s\r\n", (unsigned)cmd, (unsigned)data,
-                   data ? "ON" : "OFF");
-            break;
-
-        case ASR_CMD_MOTOR:
-        case ASR_CMD_LED_LEVEL:
-        case ASR_CMD_FAN_LEVEL:                     /* 板上没这些硬件, 只记录 */
-            printf("[ASR] cmd=%u data=%u -> (no hardware on this board)\r\n",
-                   (unsigned)cmd, (unsigned)data);
-            break;
-
-        default:
-            printf("[ASR] cmd=%u data=%u -> unknown, check the ASR firmware's command table\r\n",
-                   (unsigned)cmd, (unsigned)data);
-            break;
-    }
+    if (lux < CFG_TH_LUX_DN) { return ASR_LIGHT_DARK;   }
+    if (lux > CFG_TH_LUX_UP) { return ASR_LIGHT_STRONG; }
+    return ASR_LIGHT_OK;
 }
-#endif
 
-/* 收到一整帧(校验已通过)时调用 */
-static void Asr_Handle(void)
+/* DHT11 到底读到过数据没有?
+ * ⚠️ 关键: DHT11_Read() 失败时 g_xLatestDht11 **保持上一次的值, 从没成功过就一直是 0**。
+ *    直接拿 0 去比阈值, 传感器一坏就会永久播报"温度过低"。
+ *    所以 温度/湿度 全 0 一律当作"没数据", 不参与告警判断。 */
+static uint8_t Asr_DhtValid(void)
 {
-    /* 原始 6 字节: [0][1]帧头 0x55 0xAA, [2]长度, [3]cmd, [4]data, [5]校验.
-     * ⚠️ 能走到这里, 说明 XOR 校验已经通过了 —— 也就是说帧结构合法,
-     *    波特率基本可以确定是对的(波特率错的时候, 恰好凑出合法帧的概率极低). */
-    printf("[ASR] raw: %02X %02X %02X %02X %02X %02X\r\n",
-           (unsigned)Asr_RxPacket[0], (unsigned)Asr_RxPacket[1], (unsigned)Asr_RxPacket[2],
-           (unsigned)Asr_RxPacket[3], (unsigned)Asr_RxPacket[4], (unsigned)Asr_RxPacket[5]);
+    return ((g_xLatestDht11.temperature != 0U) ||
+            (g_xLatestDht11.humidity    != 0U)) ? 1U : 0U;
+}
 
-#if ASR_SHOW_DECODED
-    Asr_Decode();
-#endif
+/* 阈值检查: 返回告警码, 0 = 一切正常 */
+static uint8_t Asr_CheckAlarm(void)
+{
+    int temp = (int)g_xLatestDht11.temperature;
+    int humi = (int)g_xLatestDht11.humidity;
+    int lux  = (int)g_xLatestLux;
+
+    if (Asr_DhtValid() != 0U)
+    {
+        if (temp > CFG_TH_TEMP_UP) { return ASR_ALARM_TEMP_HI; }
+        if (temp < CFG_TH_TEMP_DN) { return ASR_ALARM_TEMP_LO; }
+        if (humi > CFG_TH_HUMI_UP) { return ASR_ALARM_HUMI_HI; }
+        if (humi < CFG_TH_HUMI_DN) { return ASR_ALARM_HUMI_LO; }
+    }
+    /* 光照不套这个判断: BH1750 一直好使, 而且 0 lx 是合法读数(全黑) */
+    if (lux < CFG_TH_LUX_DN) { return ASR_ALARM_LUX_LO; }
+    if (lux > CFG_TH_LUX_UP) { return ASR_ALARM_LUX_HI; }
+
+    return 0U;
+}
+
+/* 模块问某一项数据 → 回一个数值 */
+static void Asr_Answer(const char *req)
+{
+    if (strcmp(req, ASR_REQ_TEMP) == 0)
+    {
+        Asr_SendNum((int)g_xLatestDht11.temperature);
+    }
+    else if (strcmp(req, ASR_REQ_HUMI) == 0)
+    {
+        Asr_SendNum((int)g_xLatestDht11.humidity);
+    }
+    else if (strcmp(req, ASR_REQ_LUX) == 0)
+    {
+        Asr_SendNum((int)g_xLatestLux);
+    }
+    /* 别的字符串一律忽略 —— 防线上杂波 / 模块的其它输出被当成数据请求 */
 }
 
 /* ========================= 建任务 ========================= */
@@ -88,7 +87,6 @@ void TaskAsrCreate(void)
     if (xTaskCreate(TaskAsr, "Asr", APP_STACK_ASR, NULL,
                     APP_PRIO_ASR, NULL) != pdPASS)
     {
-        printf("ERROR: xTaskCreate(Asr) failed (heap too small?)\r\n");
         Error_Handler();
     }
 }
@@ -96,22 +94,55 @@ void TaskAsrCreate(void)
 /* ========================= 任务本体 ========================= */
 static void TaskAsr(void *argument)
 {
-    (void)argument;                     /* 未使用, 显式忽略 */
+    uint32_t tick_report = 0U;      /* 定时播报计数 */
+    uint32_t tick_alarm  = 0U;      /* 告警检查计数 */
+    uint8_t  last_alarm  = 0U;      /* 上次的告警码, 只在变化时播报 */
+    char     line[ASR_LINE_MAX];
 
-    printf("[ASR] started, poll %d ms\r\n", APP_ASR_PERIOD_MS);
+    (void)argument;
 
     for (;;)
     {
-        /* 标志位 + 短轮询(04 篇的"写法 A"): 中断里完全不碰 FreeRTOS API,
-         * 省掉"中断优先级必须 >= 5"那一整类坑. 最坏延迟 50ms, 人耳感觉不到.
-         * ⚠️ APP_ASR_PERIOD_MS 不能设成 0 —— vTaskDelay(0) 等于不延时,
-         *    任务会变成忙等把 CPU 吃光. */
-        if (Asr_RxFlag != 0U)
+        /* ---------- 1. 应答模块的数据请求 ---------- */
+        if (Asr_LineReady != 0U)
         {
-            Asr_RxFlag = 0U;
-            Asr_Handle();
+            /* 先把内容拷出来, 再清标志 —— 顺序反了会和中断抢缓冲 */
+            (void)strncpy(line, (const char *)Asr_Line, ASR_LINE_MAX);
+            line[ASR_LINE_MAX - 1U] = '\0';
+            Asr_LineLen   = 0U;
+            Asr_LineReady = 0U;
+
+            Asr_Answer(line);
         }
 
+        /* ---------- 2. 定时播报 (必做3) ---------- */
+        tick_report++;
+        if (tick_report >= (APP_ASR_REPORT_PERIOD_MS / APP_ASR_PERIOD_MS))
+        {
+            int     lux   = 0;
+            uint8_t light = Asr_LightLevel(&lux);
+
+            tick_report = 0U;
+            Asr_SendEnv((int)g_xLatestDht11.temperature,
+                        (int)g_xLatestDht11.humidity,
+                        light);
+        }
+
+        /* ---------- 3. 阈值告警 (必做4) ---------- */
+        tick_alarm++;
+        if (tick_alarm >= (1000U / APP_ASR_PERIOD_MS))
+        {
+            uint8_t code = Asr_CheckAlarm();
+
+            tick_alarm = 0U;
+            if (code != last_alarm)     /* 只在状态变化时播报 */
+            {
+                last_alarm = code;
+                Asr_SendAlarm((code == 0U) ? ASR_ALARM_OK : code);
+            }
+        }
+
+        /* ⚠️ APP_ASR_PERIOD_MS 绝不能设成 0: vTaskDelay(0) 不延时, 任务会忙等吃光 CPU */
         vTaskDelay(pdMS_TO_TICKS(APP_ASR_PERIOD_MS));
     }
 }
