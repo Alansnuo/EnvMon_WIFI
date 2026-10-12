@@ -5,8 +5,8 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
-/* 建光照采集任务. 由启动任务在联网成功后调用 (此时调度器已在跑).
- * 还没实现, 见 task_light.c 的说明. */
+/* 建光照采集任务. 由 App_Init() 在 vTaskStartScheduler() 之前调用 ——
+ * 此时只是把任务挂到就绪表, 真正开跑要等调度器起来. */
 void TaskLightCreate(void);
 
 #endif /* __TASK_LIGHT_H */

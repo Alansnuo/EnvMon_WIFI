@@ -16,6 +16,15 @@
 #include <string.h>
 #include <stdio.h>
 
+/* ------------------------------ 调试开关 ------------------------------
+ * 1 = 打开 WiFi 排查用的详细串口诊断(复位启动窗口 / 收发原始字节 / AT 版本).
+ * 0 = 关掉(默认). 关着的时候 WiFi 重试只会打 [WiFi] init failed 那两行, 不刷屏.
+ * ⚠️ 打开后每次重试(每 5 秒)会多打 5~6 行, 排查完记得改回 0.
+ * 也可以在 Keil 的 C/C++ → Define 里加 ESP8266_DEBUG=1 临时打开, 不用改代码. */
+#ifndef ESP8266_DEBUG
+#define ESP8266_DEBUG   0
+#endif
+
 /* -------------------------------- 私有变量 -------------------------------- */
 
 /* 当前命令 (在 RAM 里, 中断发送要用) */
@@ -44,6 +53,39 @@ static ESP8266_Status ESP8266_SendCmd(const char cmd[], const char ack[], uint32
 
 /* --------------------------------- 初始化 --------------------------------- */
 
+#if ESP8266_DEBUG
+/* 打印接收缓冲. 头 32 字节给十六进制(看有没有回显), 尾部 96 字节给文本.
+ * ⚠️ 重点看**尾部**: 命令的回显在前面, 模块真正的应答在后面.
+ * 判读:
+ *   rxlen=0              -> 模块一个字都没回: 没供电/没启动/串口没接对
+ *   尾部有 ERROR / FAIL  -> 模块活着但不认这条命令
+ *   尾部是乱码 / ready   -> 模块中途重启了(多半是发射瞬间供电跌落 brownout)
+ *   尾部什么都没有       -> 命令发出去了, 模块没应答 */
+static void ESP8266_DumpRx(void)
+{
+    uint16_t i;
+    uint16_t start;
+    uint8_t  c;
+
+    printf("[ESP] rxlen=%u  head_hex=", (unsigned)s_RxLen);
+    for (i = 0; (i < s_RxLen) && (i < 32U); i++)
+    {
+        printf("%02X ", (unsigned)s_RxBuf[i]);
+    }
+
+    start = (s_RxLen > 96U) ? (uint16_t)(s_RxLen - 96U) : 0U;
+    printf("\r\n[ESP] tail_text=");
+    for (i = start; i < s_RxLen; i++)
+    {
+        c = s_RxBuf[i];
+        printf("%c", ((c >= 32U) && (c < 127U)) ? (char)c : '.');
+    }
+    printf("\r\n");
+}
+#else
+#define ESP8266_DumpRx()    ((void)0)       /* 关掉时不产生任何代码 */
+#endif
+
 /**
  * @brief  初始化模块: 复位 + 挂上 DMA 接收 + 探活, 见 esp8266.h
  */
@@ -54,6 +96,9 @@ ESP8266_Status ESP8266_Init(void)
     /* 先挂上 DMA 接收再复位, 从这一刻起串口来的字节就不会丢 */
     if (ESP8266_RxStart() != ESP8266_OK)
     {
+#if ESP8266_DEBUG
+        printf("[ESP] RxStart failed\r\n");
+#endif
         return ESP8266_ERR_AT;
     }
 
@@ -63,10 +108,25 @@ ESP8266_Status ESP8266_Init(void)
     HAL_GPIO_WritePin(ESP8266_RST_PORT, ESP8266_RST_PIN, GPIO_PIN_SET);
     BSP_DelayMs(1000);
 
+#if ESP8266_DEBUG
+    /* 抓复位后的"启动窗口": ESP8266 每次上电/复位都会在 TX 上打一段 ROM 启动日志.
+     * 我们没按 74880 收, 所以是乱码 —— 但"有没有字节"本身就是答案:
+     *   有字节 -> 模块上电且在启动, 问题在"为什么不认 AT"(可能进了下载模式)
+     *   零字节 -> 模块压根没跑: 没供电 / EN 没拉高 / 模块 TX 没接到 PA3
+     * 必须在这里打: 下面 ESP8266_Exec() 一发命令就会清空接收缓冲 */
+    ESP8266_RxDrain();
+    printf("[ESP] boot-window bytes: %u\r\n", (unsigned)s_RxLen);
+    ESP8266_DumpRx();
+#endif
+
     /* 探活: 回 OK 就是活着 */
     st = ESP8266_SendCmd("AT\r\n", "OK", ESP8266_TIMEOUT);
     if (st != ESP8266_OK)
     {
+#if ESP8266_DEBUG
+        printf("[ESP] 'AT' failed, st=%d\r\n", (int)st);
+        ESP8266_DumpRx();
+#endif
         return st;
     }
 
@@ -74,11 +134,31 @@ ESP8266_Status ESP8266_Init(void)
     st = ESP8266_SendCmd("ATE0\r\n", "OK", ESP8266_TIMEOUT);
     if (st != ESP8266_OK)
     {
+#if ESP8266_DEBUG
+        printf("[ESP] 'ATE0' failed, st=%d\r\n", (int)st);
+        ESP8266_DumpRx();
+#endif
         return st;
     }
 
+#if ESP8266_DEBUG
+    /* 模块型号与 AT 固件版本. 本驱动用的 MQTT 指令(AT+MQTTUSERCFG / AT+MQTTPASSWORD /
+     * AT+MQTTCONNCFG / AT+MQTTCONN / AT+MQTTPUB)是 ESP-AT 2.0.0 才引入的;
+     * 老固件(0.9.x / 1.x)没有这些命令, 表现是 AT 能通但一到 MQTT 那步就 ERROR */
+    (void)ESP8266_SendCmd("AT+GMR\r\n", "OK", ESP8266_TIMEOUT);
+    printf("[ESP] AT+GMR ->\r\n%s\r\n", (char *)s_RxBuf);
+#endif
+
     /* 关掉模块自己的自动重连: 它会在后台抢射频状态, 导致 CWJAP 连不上 */
-    return ESP8266_SendCmd("AT+CWAUTOCONN=0\r\n", "OK", ESP8266_TIMEOUT);
+    st = ESP8266_SendCmd("AT+CWAUTOCONN=0\r\n", "OK", ESP8266_TIMEOUT);
+#if ESP8266_DEBUG
+    if (st != ESP8266_OK)
+    {
+        printf("[ESP] 'CWAUTOCONN' failed, st=%d\r\n", (int)st);
+        ESP8266_DumpRx();
+    }
+#endif
+    return st;
 }
 
 /* ---------------------------------- WiFi ---------------------------------- */
@@ -164,12 +244,25 @@ ESP8266_Status ESP8266_MQTT_ConnectBroker(const char host[], uint16_t port)
  */
 ESP8266_Status ESP8266_MQTT_Publish(const char topic[], const char data[])
 {
+    ESP8266_Status st;
+
     /* AT+MQTTPUB=0,"<主题>","<载荷>",0,0 —— 载荷里的 " 和 , 得是已经转义好的
      * \" 和 \, (见 app_json.c): 模块按逗号切参数, 不转义会把 JSON 切碎 */
     (void)snprintf(s_Cmd, sizeof(s_Cmd), "AT+MQTTPUB=0,\"%s\",\"%s\",0,0\r\n",
                    topic, data);
 
-    return ESP8266_Exec("OK", ESP8266_TIMEOUT);
+    st = ESP8266_Exec("OK", ESP8266_TIMEOUT);
+
+#if ESP8266_DEBUG
+    if (st != ESP8266_OK)
+    {
+        /* cmdlen 用来排查 snprintf 有没有被截断(命令缓冲 288, 上限 256) */
+        printf("[ESP] MQTTPUB failed st=%d cmdlen=%u\r\n",
+               (int)st, (unsigned)strlen(s_Cmd));
+        ESP8266_DumpRx();
+    }
+#endif
+    return st;
 }
 
 /* ================================ 内部实现 ================================ */
@@ -183,9 +276,19 @@ ESP8266_Status ESP8266_MQTT_Publish(const char topic[], const char data[])
 /* 启动 DMA 接收. Init 里调 (每次 Init 都要重挂) */
 static ESP8266_Status ESP8266_RxStart(void)
 {
-    /* 先停再开: Receive_DMA 要求 RxState == READY, 而重连时 DMA 还在跑 */
-    (void)HAL_UART_DMAStop(&ESP8266_UART);
+    /* ⚠️ 必须把 UART 状态强制清回 READY, 否则**重连会彻底失效**:
+     * HAL 的 Transmit_IT / Receive_DMA 都要求 gState / RxState == READY,
+     * 否则直接返回 HAL_BUSY. 上一次如果 TX 超时没发完, 或 DMA 没收干净,
+     * 状态就卡在 BUSY_TX / BUSY_RX —— 之后每一条命令都失败, 表现是模块
+     * 明明恢复了, 却永远停在 "[WiFi] init failed / retry in 5 s".
+     * HAL_UART_Abort() 一次把收发两侧都复位(含 DMA 清理). */
+    (void)HAL_UART_Abort(&ESP8266_UART);
 
+    /* ⚠️ 三个都要清. 只重置 s_DmaTail 不够: s_RxBuf/s_RxLen 是上一轮 Exec 留下的
+     * 残留(比如被模块回显的命令), 不清的话会被算进"复位后收到的字节数" ——
+     * 之前那个假的 "boot-window bytes: 205" 就是这么来的 */
+    memset(s_RxBuf, 0, sizeof(s_RxBuf));
+    s_RxLen   = 0;
     s_DmaTail = 0;
 
     if (HAL_UART_Receive_DMA(&ESP8266_UART, s_DmaBuf,
@@ -275,6 +378,9 @@ static ESP8266_Status ESP8266_Exec(const char ack[], uint32_t timeoutMs)
     {
         if ((HAL_GetTick() - tick) > ESP8266_TX_TIMEOUT)
         {
+            /* 超时必须把 TX 状态清回 READY: 不然 gState 卡在 BUSY_TX,
+             * 之后 Transmit_IT 一直返回 HAL_BUSY, 整条链路再也起不来 */
+            (void)HAL_UART_AbortTransmit(&ESP8266_UART);
             return ESP8266_ERR_TIMEOUT;
         }
         BSP_DelayMs(1);

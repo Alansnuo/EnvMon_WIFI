@@ -116,6 +116,17 @@ void HAL_UART_MspInit(UART_HandleTypeDef* uartHandle)
 
   /* USER CODE BEGIN USART1_MspInit 1 */
 
+    /* 天问语音模块要在 USART1 上收 6 字节帧, 必须开 NVIC.
+     * 优先级 6: 必须 >= configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY(=5), 否则
+     * 中断里调 FreeRTOS 的 ...FromISR API 会踩 configASSERT.
+     * (本中断目前只读 DR、不碰 RTOS, 设 6 是留余量 —— 数值越大优先级越低.)
+     *
+     * ⚠️ 写在 USER CODE 段内, CubeMX 重新生成代码时不会被冲掉.
+     * ⚠️ 但**不要**在 CubeMX 里勾 "USART1 global interrupt": 那样它会自己生成一个
+     *    USART1_IRQHandler, 和 stm32f1xx_it.c 里手写的那个撞符号(和 TIM2 那个坑同理). */
+    HAL_NVIC_SetPriority(USART1_IRQn, 6, 0);
+    HAL_NVIC_EnableIRQ(USART1_IRQn);
+
   /* USER CODE END USART1_MspInit 1 */
   }
   else if(uartHandle->Instance==USART2)
@@ -158,14 +169,18 @@ void HAL_UART_MspInit(UART_HandleTypeDef* uartHandle)
 
     __HAL_LINKDMA(uartHandle,hdmarx,hdma_usart2_rx);
 
-    /* USART2 全局中断使能 —— 下一行的位置/内容就是 CubeMX 里勾上
-       "USART2 global interrupt" 之后生成的样子, 改动已同步进 project.ioc,
-       重新 Generate Code 不会漂移. 谁在用: ESP8266 驱动用 HAL_UART_Transmit_IT
-       发 AT 指令, 发送完成靠这个中断报给 HAL (见 BSP/ESP8266/esp8266.c). */
+    /* USART2 interrupt Init */
     HAL_NVIC_SetPriority(USART2_IRQn, 5, 0);
     HAL_NVIC_EnableIRQ(USART2_IRQn);
-
   /* USER CODE BEGIN USART2_MspInit 1 */
+
+  /* 上面那两行 HAL_NVIC_SetPriority / HAL_NVIC_EnableIRQ(USART2_IRQn) 就是
+     CubeMX 里勾上 "USART2 global interrupt" 之后生成的样子, 改动已同步进
+     project.ioc, 重新 Generate Code 不会漂移.
+     谁在用: ESP8266 驱动用 HAL_UART_Transmit_IT 发 AT 指令, 发送完成靠这个
+     中断报给 HAL (见 BSP/ESP8266/esp8266.c).
+     ↑ 原先这段写在 USER CODE 区块之外, 2026-10-10 一次 Generate Code 把它删掉了,
+       现挪进这里, 以后再生成不会再丢. */
 
   /* USER CODE END USART2_MspInit 1 */
   }
@@ -208,6 +223,9 @@ void HAL_UART_MspDeInit(UART_HandleTypeDef* uartHandle)
 
     /* USART2 DMA DeInit */
     HAL_DMA_DeInit(uartHandle->hdmarx);
+
+    /* USART2 interrupt Deinit */
+    HAL_NVIC_DisableIRQ(USART2_IRQn);
   /* USER CODE BEGIN USART2_MspDeInit 1 */
 
   /* USER CODE END USART2_MspDeInit 1 */

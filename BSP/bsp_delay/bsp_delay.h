@@ -34,4 +34,19 @@
  *   任务里(调度器已运行) → 挂起本任务让出 CPU, 实际时长 >= ms (最多多一个 tick). */
 void BSP_DelayMs(uint32_t ms);
 
+/* 延时 us 微秒 (忙等). 只给软件 I2C / 单总线这类总线时序用, 一般几 us ~ 几百 us;
+ * 毫秒级一律用 BSP_DelayMs, 否则会把 CPU 白占着不放给别的任务.
+ * 必须是纯忙等, 不能挂起任务 —— 让出 CPU 后别的任务插进来会打乱时钟周期,
+ * 所以它没有像 BSP_DelayMs 那样拆成弱/强两份.
+ * 用 TIM2 自由运行计数器实现(1 个计数 = 1us): 不占 SysTick, 不使能中断,
+ * 只读 CNT 不用通道, 所以也不占用任何引脚. */
+void BSP_DelayUs(uint32_t us);
+
+/* 读当前的微秒计时值. TIM2 自由运行, 16 位, 每 65536us 回绕一次.
+ * 只用来算时间差: (uint16_t)(BSP_GetUs() - start) —— 无符号相减天然抗回绕,
+ * 所以单次测量区间只要 < 65536us 就不用管回绕.
+ * 首次调用会顺带把时基拉起来; 要在 __disable_irq() 里测量的话,
+ * 记得在关中断之前先调一次预热(见 BSP/dht11/dht11.c 的 DHT11_Init). */
+uint16_t BSP_GetUs(void);
+
 #endif /* __BSP_DELAY_H */

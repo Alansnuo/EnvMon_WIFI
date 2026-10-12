@@ -6,8 +6,12 @@
 #include "app_main.h"
 #include <stdio.h>
 
+#include "BH1750.h"
+#include "asr.h"
 #include "dht11.h"
+#include "task_asr.h"
 #include "task_dht11.h"
+#include "task_light.h"
 #include "task_wifi.h"
 
 /* ========================= 任务间数据通道 ========================= */
@@ -23,6 +27,16 @@ void App_Init(void)
     DHT11_Init();
     printf("DHT11 Sensor Ready!\r\n");
 
+    /* 光照同样放在调度器之前: 内部只有一次 10ms 的 BSP_DelayMs, 忙等得起.
+     * ⚠️ 不要在任务里再调 BH1750_Init() —— 它会重配 PB6/PB7 并重发上电命令. */
+    BH1750_Init();
+    printf("BH1750 Sensor Ready!\r\n");
+
+    /* 天问语音: 只打开 USART1 的 RXNE 中断. USART1 本身由 MX_USART1_UART_Init() 配好,
+     * 而且它和 printf(fputc) 共用 —— 共用为什么安全见 BSP/ASR/asr.h. */
+    Asr_Init();
+    printf("ASR (TianWen) Ready!\r\n");
+
     /* --- 2. 建 DHT11 → 通信的数据通道 --- */
     g_xDht11Queue = xQueueCreate(APP_DHT11_QUEUE_LEN, sizeof(DHT11_Data));
     if (g_xDht11Queue == NULL)
@@ -32,10 +46,12 @@ void App_Init(void)
     }
 
     /* --- 3. 建任务 ---
-     * 这两句只是把任务挂到就绪表上, 它们要等 main() 里那句
+     * 这几句只是把任务挂到就绪表上, 它们要等 main() 里那句
      * vTaskStartScheduler() 之后才真正开始跑. 谁先建不影响谁先跑,
      * 跑的顺序由优先级决定.
-     * 下面两个函数内部会打印错误并进 Error_Handler, 不用查返回值. */
+     * 下面几个函数内部会打印错误并进 Error_Handler, 不用查返回值. */
     TaskWifiCreate();
     TaskDht11Create();
+    TaskLightCreate();
+    TaskAsrCreate();
 }

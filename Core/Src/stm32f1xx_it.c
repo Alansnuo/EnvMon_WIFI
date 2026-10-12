@@ -22,6 +22,9 @@
 #include "stm32f1xx_it.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+
+#include "asr.h"            /* 天问语音模块: USART1 中断里要调 Asr_RxByteFromISR() */
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -56,8 +59,8 @@
 
 /* External variables --------------------------------------------------------*/
 extern DMA_HandleTypeDef hdma_usart2_rx;
-extern TIM_HandleTypeDef htim4;
 extern UART_HandleTypeDef huart2;
+extern TIM_HandleTypeDef htim4;
 
 /* USER CODE BEGIN EV */
 
@@ -142,28 +145,6 @@ void UsageFault_Handler(void)
 }
 
 /**
-  * @brief This function handles System service call via SWI instruction.
-  */
-/* SVC_Handler, PendSV_Handler and SysTick_Handler are supplied by the FreeRTOS
- * port -- see freertos/port/port.c.  They are disabled here to avoid duplicate
- * symbols at link time.  FreeRTOSConfig.h maps the port's vPortSVCHandler,
- * xPortPendSVHandler and xPortSysTickHandler onto these CMSIS names.
- *
- * WARNING: CubeMX regenerates this file and will strip the #if 0 guards.
- * Re-apply them after every "Generate Code". */
-#if 0
-void SVC_Handler(void)
-{
-  /* USER CODE BEGIN SVCall_IRQn 0 */
-
-  /* USER CODE END SVCall_IRQn 0 */
-  /* USER CODE BEGIN SVCall_IRQn 1 */
-
-  /* USER CODE END SVCall_IRQn 1 */
-}
-#endif
-
-/**
   * @brief This function handles Debug monitor.
   */
 void DebugMon_Handler(void)
@@ -175,43 +156,6 @@ void DebugMon_Handler(void)
 
   /* USER CODE END DebugMonitor_IRQn 1 */
 }
-
-/**
-  * @brief This function handles Pendable request for system service.
-  */
-/* Provided by the FreeRTOS port -- see freertos/port/port.c.
- * CubeMX regeneration strips this guard; re-apply after "Generate Code". */
-#if 0
-void PendSV_Handler(void)
-{
-  /* USER CODE BEGIN PendSV_IRQn 0 */
-
-  /* USER CODE END PendSV_IRQn 0 */
-  /* USER CODE BEGIN PendSV_IRQn 1 */
-
-  /* USER CODE END PendSV_IRQn 1 */
-}
-#endif
-
-/**
-  * @brief This function handles System tick timer.
-  */
-/* Provided by the FreeRTOS port -- see freertos/port/port.c.  The HAL time base
- * runs off TIM4 (see stm32f1xx_hal_timebase_tim.c), so SysTick is free for the
- * RTOS scheduler.
- * CubeMX regeneration strips this guard; re-apply after "Generate Code". */
-#if 0
-void SysTick_Handler(void)
-{
-  /* USER CODE BEGIN SysTick_IRQn 0 */
-
-  /* USER CODE END SysTick_IRQn 0 */
-
-  /* USER CODE BEGIN SysTick_IRQn 1 */
-
-  /* USER CODE END SysTick_IRQn 1 */
-}
-#endif
 
 /******************************************************************************/
 /* STM32F1xx Peripheral Interrupt Handlers                                    */
@@ -263,5 +207,25 @@ void USART2_IRQHandler(void)
 }
 
 /* USER CODE BEGIN 1 */
+
+/**
+  * @brief  天问语音模块 (ASRPRO) 的接收中断.
+  *
+  * 直接读 DR 顺手清 RXNE, **故意不调 HAL_UART_IRQHandler** —— 那个函数自己也会
+  * 读一次 DR, 先读就把字节吃掉了, HAL 拿到的是空的(见 04 篇第 1 步"做法 A").
+  *
+  * ⚠️ 放在 USER CODE 段里: CubeMX 重新生成这个文件时只保留 USER CODE 段.
+  *    (project.ioc 里没勾 USART1 中断, 所以 CubeMX 不会自己生成这个函数.)
+  * ⚠️ 本工程每帧只有 6 字节、命令间隔几百毫秒, 不会溢出, 所以不处理 ORE.
+  *    万一以后发现"收几帧后就彻底收不到了", 就是 ORE 没清, 在这里补:
+  *      if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_ORE)) { __HAL_UART_CLEAR_OREFLAG(&huart1); }
+  */
+void USART1_IRQHandler(void)
+{
+  if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_RXNE) != RESET)
+  {
+    Asr_RxByteFromISR((uint8_t)(huart1.Instance->DR & 0xFFU));
+  }
+}
 
 /* USER CODE END 1 */
