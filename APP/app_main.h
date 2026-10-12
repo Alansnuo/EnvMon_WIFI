@@ -16,7 +16,7 @@
  *   4  → 定时器服务任务 (configTIMER_TASK_PRIORITY, FreeRTOS 占用)
  *   3  → WiFi 任务
  *   2  → DHT11 采集任务
- *   1  → 光照采集任务 / 语音命令任务 / OLED 显示任务
+ *   1  → 光照采集任务 / 语音命令任务 / OLED 显示任务 / 按键任务
  *   0  → 空闲任务 (FreeRTOS 占用)
  *
  * WiFi 排在采集之上: 网络有超时约束, 采集只是周期采样, 晚一点无所谓.
@@ -27,6 +27,7 @@
 #define APP_PRIO_LIGHT          1       /* 比 DHT11 低: 光照刷不刷得及时无所谓 */
 #define APP_PRIO_ASR            1       /* 和光照同档: 50ms 响应人耳感觉不到 */
 #define APP_PRIO_OLED           1       /* 和采集同档: 1 秒刷一帧, 晚一拍无所谓 */
+#define APP_PRIO_KEY            1       /* 和采集同档: 20ms 扫一次键盘, 开销极小 */
 
 /* ========================= 任务栈 (单位: 字, 1 字 = 4 字节) =========================
  * 实测余量看 uxTaskGetStackHighWaterMark(), 数值是"还剩多少字".
@@ -39,6 +40,7 @@
 #define APP_STACK_LIGHT         256
 #define APP_STACK_ASR           256
 #define APP_STACK_OLED          256     /* 和采集任务同档: 没有大缓冲, 刷屏是逐字节走 I2C */
+#define APP_STACK_KEY           128     /* 只做 GPIO 读 + 几个赋值, 128 字绰绰有余 */
 
 /* ========================= 任务周期 ========================= */
 #define APP_DHT11_PERIOD_MS     2000    /* DHT11 两次读取间隔须 >= 1s */
@@ -46,7 +48,8 @@
 #define APP_ASR_PERIOD_MS       50      /* 语音响应延迟上限, 人耳感知不到
                                          * ⚠️ 绝不能设成 0: vTaskDelay(0) 不延时,
                                          *    任务会变忙等把 CPU 吃光 */
-#define APP_OLED_PERIOD_MS      1000    /* 1 秒刷一帧, 既不闪烁也不拖累采集 */
+#define APP_OLED_PERIOD_MS      1000    /* 1 秒刷一帧, 既不闪烁也不拖累采集;
+                                         * 同时给模拟时钟当秒脉冲 (见 app_ui.h) */
 
 /* 语音定时播报周期 (必做3: "天问语音模块定时…触发")。
  * 30 秒一次: 演示时能看到效果, 又不会把人烦死。
@@ -55,10 +58,7 @@
 
 /* ========================= 任务间数据通道 =========================
  * DHT11 任务生产, 通信任务消费. 队列长度 4 意味着最多囤 4 次采样,
- * 通信任务跟不上的时候采集任务不会被拖住 (满了就丢).
- *
- * 光照目前只串口打印, 没有走队列: "再开一条 g_xLightQueue, 还是所有传感器共用
- * 一条带来源标记的队列"这个设计还没定, 等做上报那一步再说 (见 task_light.c). */
+ * 通信任务跟不上的时候采集任务不会被拖住 (满了就丢). */
 #define APP_DHT11_QUEUE_LEN     4
 
 extern QueueHandle_t g_xDht11Queue;

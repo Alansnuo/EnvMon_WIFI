@@ -14,6 +14,9 @@ volatile char    Asr_Line[ASR_LINE_MAX];
 volatile uint8_t Asr_LineLen   = 0U;
 volatile uint8_t Asr_LineReady = 0U;
 
+/* 按键任务置 1, 语音任务播报完清 0 */
+volatile uint8_t g_xAsrSpeakReq = 0U;
+
 /* USART1 现在专职本模块: 工程里已没有 printf 重定向, 不存在调试文本混进
  * 数据帧的问题 (为什么要这样, 见 asr.h 的头部说明)。 */
 

@@ -4,13 +4,16 @@
  * ========================================================================== */
 
 #include "app_main.h"
+#include "app_ui.h"
 
 #include "BH1750.h"
 #include "OLED.h"
 #include "asr.h"
 #include "dht11.h"
+#include "key.h"
 #include "task_asr.h"
 #include "task_dht11.h"
+#include "task_key.h"
 #include "task_light.h"
 #include "task_oled.h"
 #include "task_wifi.h"
@@ -45,6 +48,14 @@ void App_Init(void)
      * ⚠️ 别在任务里再调 OLED_Init(): 它会重配 PB8/PB9 + 全屏清零 + 上电延时, 屏会闪. */
     OLED_Init();
 
+    /* 4 个按键 (PA0/PA1/PA4/PA5, 内部上拉, 按下接地)。放调度器前只是把脚配好,
+     * 真正的扫描在 task_key.c 里每 20ms 一次。 */
+    Key_Init();
+
+    /* 界面状态初始化: 阈值从 app_config.h 的宏拷进运行时变量 (之后按键改的就是
+     * 这份), 页面回主页面, 模拟时钟给个假起点。见 APP/app_ui.c */
+    UI_Init();
+
     /* --- 2. 建 DHT11 → 通信的数据通道 --- */
     g_xDht11Queue = xQueueCreate(APP_DHT11_QUEUE_LEN, sizeof(DHT11_Data));
     if (g_xDht11Queue == NULL)
@@ -62,4 +73,5 @@ void App_Init(void)
     TaskLightCreate();
     TaskAsrCreate();
     TaskOledCreate();
+    TaskKeyCreate();
 }

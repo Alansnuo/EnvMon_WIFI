@@ -60,6 +60,10 @@ extern volatile char    Asr_Line[ASR_LINE_MAX];
 extern volatile uint8_t Asr_LineLen;
 extern volatile uint8_t Asr_LineReady;      /* 中断置 1, 任务取走后清 0 */
 
+/* 按键触发的"立刻播报一次"请求: 按键任务置 1, 语音任务取走后清 0。
+ * (必做3 的"按按键触发"那一半) */
+extern volatile uint8_t g_xAsrSpeakReq;
+
 /* 打开 USART1 的 RXNE 接收中断。在 App_Init() 里调一次 */
 void Asr_Init(void);
 

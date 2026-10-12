@@ -42,3 +42,6 @@ MDK-ARM/.vscode/
 # 临时备份
 *.bak-*
 
+# 语法自检的编译产物（桩头文件保留，obj/ 不提交）
+_syntax_check/obj/
+

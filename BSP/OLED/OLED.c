@@ -92,7 +92,7 @@ static void OLED_I2C_Init(void)
   * @param  Command 要写入的命令
   * @retval 无
   */
-void OLED_WriteCommand(uint8_t Command)
+static void OLED_WriteCommand(uint8_t Command)
 {
     OLED_I2C_Start();
     OLED_I2C_SendByte(OLED_ADDR_W);     /* 从机地址 + 写 */
@@ -106,7 +106,7 @@ void OLED_WriteCommand(uint8_t Command)
   * @param  Data 要写入的数据
   * @retval 无
   */
-void OLED_WriteData(uint8_t Data)
+static void OLED_WriteData(uint8_t Data)
 {
     OLED_I2C_Start();
     OLED_I2C_SendByte(OLED_ADDR_W);     /* 从机地址 + 写 */
@@ -121,7 +121,7 @@ void OLED_WriteData(uint8_t Data)
   * @param  X 以左上角为原点，向右方向的坐标，范围：0~127
   * @retval 无
   */
-void OLED_SetCursor(uint8_t Y, uint8_t X)
+static void OLED_SetCursor(uint8_t Y, uint8_t X)
 {
     OLED_WriteCommand(0xB0 | Y);                    /* 设置Y位置 */
     OLED_WriteCommand(0x10 | ((X & 0xF0) >> 4));    /* 设置X位置高4位 */
@@ -181,6 +181,114 @@ void OLED_ShowString(uint8_t Line, uint8_t Column, char *String)
     for (i = 0; String[i] != '\0'; i++)
     {
         OLED_ShowChar(Line, Column + i, String[i]);
+    }
+}
+
+/**
+  * @brief  OLED显示一个汉字（16x16）
+  * @param  Line 行位置，范围：1~4
+  * @param  Column 列位置，范围：1~8 —— 汉字 16 像素宽，占两列
+  * @param  num 字形下标，用 OLED_Font.h 里的 HZK_xxx 枚举
+  * @retval 无
+  * @note   参考工程同名函数的位置算法一致：上半页写 Hzk1[num][0..15]，
+  *         下半页写 Hzk1[num][16..31]
+  */
+void OLED_ShowChinese(uint8_t Line, uint8_t Column, uint8_t num)
+{
+    uint8_t i;
+
+    if ((Line < 1) || (Line > 4) || (Column < 1) || (Column > 8) || (num >= 30))
+    {
+        return;
+    }
+
+    OLED_SetCursor((Line - 1) * 2, (Column - 1) * 16);
+    for (i = 0; i < 16; i++)
+    {
+        OLED_WriteData(Hzk1[num][i]);           /* 上半页 */
+    }
+    OLED_SetCursor((Line - 1) * 2 + 1, (Column - 1) * 16);
+    for (i = 0; i < 16; i++)
+    {
+        OLED_WriteData(Hzk1[num][i + 16]);      /* 下半页 */
+    }
+}
+
+/**
+  * @brief  按 UTF-8 字符查字形下标，查不到返回 0xFF
+  * @note   为什么不用"汉字在字符串里直接写"：
+  *         OLED 的行是 16 列 x 8 像素，汉字是 16 像素宽 = 占 2 列，
+  *         而 ASCII 是 8 像素宽 = 占 1 列。两者混在一行里没法用一个
+  *         列号同时表示，所以行内位置由调用方按"汉字占几列"自己算。
+  *         这个函数只负责把 UTF-8 汉字映射到 Hzk1 的下标。
+  */
+static uint8_t OLED_GlyphOfUtf8(const char *s)
+{
+    /* 界面用到的汉字。(UTF-8 三字节) -> Hzk1 下标 */
+    static const struct { char c[4]; uint8_t g; } map[] = {
+        { "\xE6\xB8\xA9", HZK_WEN  },   /* 温 */
+        { "\xE6\xB9\xBF", HZK_SHI  },   /* 湿 */
+        { "\xE5\xBA\xA6", HZK_DU   },   /* 度 */
+        { "\xE5\x85\x89", HZK_GUANG},   /* 光 */
+        { "\xE7\x85\xA7", HZK_ZHAO },   /* 照 */
+        { "\xE5\xBC\xBA", HZK_QIANG},   /* 强 */
+        { "\xE7\xB3\xBB", HZK_XI   },   /* 系 */
+        { "\xE7\xBB\x9F", HZK_TONG },   /* 统 */
+        { "\xE6\xA8\xA1", HZK_MO   },   /* 模 */
+        { "\xE5\xBC\x8F", HZK_SHI2 },   /* 式 */
+        { "\xE6\x89\x8B", HZK_SHOU },   /* 手 */
+        { "\xE5\x8A\xA8", HZK_DONG },   /* 动 */
+        { "\xE8\x87\xAA", HZK_ZI   },   /* 自 */
+        { "\xE9\x98\x88", HZK_YU   },   /* 阈 */
+        { "\xE5\x80\xBC", HZK_ZHI  },   /* 值 */
+        { "\xE8\xAE\xBE", HZK_SHE  },   /* 设 */
+        { "\xE7\xBD\xAE", HZK_ZHI2 },   /* 置 */
+        { "\xE7\x95\x8C", HZK_JIE  },   /* 界 */
+        { "\xE9\x9D\xA2", HZK_MIAN },   /* 面 */
+        { "\xE7\x81\xAB", HZK_HUO  },   /* 火 */
+        { "\xE7\x84\xB0", HZK_YAN2 },   /* 焰 */
+    };
+    uint8_t i;
+
+    for (i = 0; i < (uint8_t)(sizeof(map) / sizeof(map[0])); i++)
+    {
+        if ((s[0] == map[i].c[0]) && (s[1] == map[i].c[1]) && (s[2] == map[i].c[2]))
+        {
+            return map[i].g;
+        }
+    }
+    return 0xFF;
+}
+
+/**
+  * @brief  显示一串汉字（UTF-8）
+  * @param  Line 行位置 1~4
+  * @param  Column 起始列 1~8，每个汉字占 2 列
+  * @param  String 以 '\0' 结尾的 UTF-8 汉字串
+  * @retval 无
+  */
+void OLED_ShowChineseString(uint8_t Line, uint8_t Column, const char *String)
+{
+    uint8_t i = 0;
+    uint8_t g;
+
+    while (String[i] != '\0')
+    {
+        g = OLED_GlyphOfUtf8(&String[i]);
+        if (g == 0xFF)
+        {
+            i++;                                    /* 表里没有这个字: 跳过一字节 */
+            continue;
+        }
+
+        OLED_ShowChinese(Line, Column, g);
+
+        Column += 2;                                /* 一个汉字占两列 */
+        if (Column > 8)
+        {
+            break;                                  /* 超出这一行就不再写 */
+        }
+        i += 3;                                     /* UTF-8 三字节 */
     }
 }
 

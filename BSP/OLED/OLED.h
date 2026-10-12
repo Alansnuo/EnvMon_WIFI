@@ -29,6 +29,15 @@ void OLED_Init(void);
 void OLED_Clear(void);
 void OLED_ShowChar(uint8_t Line, uint8_t Column, char Char);
 void OLED_ShowString(uint8_t Line, uint8_t Column, char *String);
+
+/* ---- 汉字 (16x16), 字模在 OLED_Font.h 的 Hzk1[30][32] ----
+ * 一个汉字 16 像素宽 = 占 2 列, 一行最多 8 个;
+ * ASCII 是 8 像素宽 = 占 1 列, 一行 16 个。
+ * 所以汉字和 ASCII 混排在同一行时, 两者的列号不能混着累加 —— 要分开算列。
+ * 具体画法见 task_oled.c 各页面。 */
+void OLED_ShowChinese(uint8_t Line, uint8_t Column, uint8_t num);
+void OLED_ShowChineseString(uint8_t Line, uint8_t Column, const char *String);
+
 void OLED_ShowNum(uint8_t Line, uint8_t Column, uint32_t Number, uint8_t Length);
 void OLED_ShowSignedNum(uint8_t Line, uint8_t Column, int32_t Number, uint8_t Length);
 void OLED_ShowHexNum(uint8_t Line, uint8_t Column, uint32_t Number, uint8_t Length);

@@ -1,28 +1,90 @@
 /* ============================================================================
  * WiFi 通信任务: 联网 + MQTT 上报, 所有碰 ESP8266 的事都在这里
  *
- * 业务策略在本文件, AT 指令与网络细节在 BSP/ESP8266, 报文在 APP/app_json.
- * 驱动是顺序阻塞的(发一条等一条), 一次连接最坏占十几秒, 所以要独立任务跑.
- * 上报: 值不变就不发, 变了下一条立刻发.
+ * 业务策略在本文件, AT 指令与网络细节在 BSP/ESP8266。
+ * 驱动是顺序阻塞的(发一条等一条), 一次连接最坏占十几秒, 所以要独立任务跑。
+ * 上报: 值不变就不发, 变了下一条立刻发。
+ *
+ * 上报报文(JSON)原来单独放 APP/app_json.c, 现在折进本文件 ——
+ * 只有这一个任务用它, 拆成两个文件只是多一层 include。
  * ========================================================================== */
 
 #include "task_wifi.h"
 #include "app_config.h"
 #include "app_main.h"
 
-#include "app_json.h"
 #include "dht11.h"
 #include "esp8266.h"
+
+#include <stdio.h>
+#include <string.h>
 
 #define WIFI_RETRY_DELAY_MS     5000    /* 重连前歇一下, 等模块复位后稳定 */
 
 /* 连续失败这么多次才判定链路死了. 单次失败可能只是网络抖一下, 而重连要十几秒 */
 #define WIFI_MAX_CONSEC_FAIL    3
 
-static void    TaskWifi(void *argument);
-static uint8_t WifiConnect(void);
+static void TaskWifi(void *argument);
+
+/* ============================================================================
+ * 上报报文 (原 app_json.c)
+ *
+ * 属性段是 \"Temp\":{\"value\":25.0}\,\"Hum\":{\"value\":60.0} 这一段,
+ * 报文 = {"id","version","params"} + 属性段。
+ *
+ * 里面的 " 和 , 都多写了一层反斜杠: ESP8266 的 AT 指令按逗号切参数,
+ * 载荷不转义会被当成分隔符切碎 —— 参考工程也是把转义符直接写在字面量里的。
+ *
+ * 用法: 填值 → Report() 看值变没变 → 变了的报文就在 s_Buf 里 → 发成功再 Commit()。
+ * 这样"发送失败"不用另写重试: 没 Commit, 下次 Report() 还会说"变了"。
+ * ========================================================================== */
+
+#define JSON_PARAMS_SIZE    64
+#define JSON_TEXT_SIZE      128
+
+static char     s_Buf[JSON_TEXT_SIZE];          /* 拼好的报文 */
+static char     s_Params[JSON_PARAMS_SIZE];     /* 当前值的属性段 */
+static char     s_Sent[JSON_PARAMS_SIZE];       /* 上次发成功的属性段 */
+static uint32_t s_MsgId;                        /* 报文序号 */
+static int      s_Temp;
+static int      s_Humi;
+
+/* 填入要上报的值 */
+static void Json_SetTemp(int temp) { s_Temp = temp; }
+static void Json_SetHumi(int humi) { s_Humi = humi; }
+
+/* 比较当前值和上次发成功的那份, 顺便把报文拼进 s_Buf.
+ * 返回 1 = 值变了, s_Buf 里是能发出去的报文; 0 = 没变, 不用发 */
+static uint8_t Json_Report(void)
+{
+    /* 属性名必须和 OneNET 控制台"功能定义"里完全一致, 大小写敏感.
+     * 值写 "%d.0": 属性是浮点型, 补 .0 又不用链进 float 版 printf */
+    (void)snprintf(s_Params, sizeof(s_Params),
+        "\\\"Temp\\\":{\\\"value\\\":%d.0}\\,"
+        "\\\"Hum\\\":{\\\"value\\\":%d.0}",
+        s_Temp, s_Humi);
+
+    if (strcmp(s_Params, s_Sent) == 0)
+    {
+        return 0;                               /* 值没变, 不用发 */
+    }
+
+    (void)snprintf(s_Buf, sizeof(s_Buf),
+        "{\\\"id\\\":\\\"%lu\\\"\\,\\\"version\\\":\\\"1.0\\\"\\,\\\"params\\\":{%s}}",
+        (unsigned long)(++s_MsgId), s_Params);
+
+    return 1;
+}
+
+/* 发送成功后调用, 把当前值认作"已上报". 失败就别调 */
+static void Json_Commit(void)
+{
+    (void)strcpy(s_Sent, s_Params);
+}
 
 /* ================================== 联网 ================================== */
+
+static uint8_t WifiConnect(void);
 
 /* 复位模块 → 接热点 → 配 MQTT 参数 → 连 Broker. 失败返回 0, 由外层决定重试.
  * 过程中同步更新 g_xWifiState, 让 OLED 能看出卡在哪一步. */
@@ -96,19 +158,19 @@ static void TaskWifi(void *argument)
                 break;                  /* 队列异常, 退出去重连 */
             }
 
-            AppJson_SetTemp(dht.temperature);
-            AppJson_SetHumi(dht.humidity);
+            Json_SetTemp(dht.temperature);
+            Json_SetHumi(dht.humidity);
 
-            /* 值没变就没必要发, 报文也不用取 */
-            if (AppJson_Report() == 0)
+            /* 值没变就没必要发, 报文也不用拼 */
+            if (Json_Report() == 0)
             {
                 continue;
             }
 
-            /* 载荷里的 " 和 , 由驱动负责转义, 这里照常写合法 JSON */
-            if (ESP8266_MQTT_Publish(CFG_MQTT_PUB_TOPIC, AppJson_Buf) == ESP8266_OK)
+            /* 载荷里的 " 和 , 由驱动的转义逻辑配合(见上面 Json_Report 的说明) */
+            if (ESP8266_MQTT_Publish(CFG_MQTT_PUB_TOPIC, s_Buf) == ESP8266_OK)
             {
-                AppJson_Commit();       /* 发出去了才认它作当前值 */
+                Json_Commit();          /* 发出去了才认它作当前值 */
                 failStreak = 0;
             }
             else
