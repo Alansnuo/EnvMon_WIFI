@@ -7,15 +7,22 @@
 #include <stdio.h>
 
 #include "BH1750.h"
+#include "OLED.h"
 #include "asr.h"
 #include "dht11.h"
 #include "task_asr.h"
 #include "task_dht11.h"
 #include "task_light.h"
+#include "task_oled.h"
 #include "task_wifi.h"
 
 /* ========================= 任务间数据通道 ========================= */
 QueueHandle_t g_xDht11Queue = NULL;
+
+/* ========================= 最新值共享 (给 OLED 显示任务用) =========================
+ * 采集任务写, OLED 任务读. 定义见 app_main.h 的说明. */
+volatile DHT11_Data g_xLatestDht11 = {0, 0};
+volatile float      g_xLatestLux   = 0.0f;
 
 /* ========================= 应用层总入口 ========================= */
 void App_Init(void)
@@ -37,6 +44,11 @@ void App_Init(void)
     Asr_Init();
     printf("ASR (TianWen) Ready!\r\n");
 
+    /* OLED 软件 I2C (PB8=SCL, PB9=SDA). 内部有上电延时, 放调度器前才不挡别人.
+     * ⚠️ 别在任务里再调 OLED_Init(): 它会重配 PB8/PB9 + 全屏清零 + 上电延时, 屏会闪. */
+    OLED_Init();
+    printf("OLED Ready!\r\n");
+
     /* --- 2. 建 DHT11 → 通信的数据通道 --- */
     g_xDht11Queue = xQueueCreate(APP_DHT11_QUEUE_LEN, sizeof(DHT11_Data));
     if (g_xDht11Queue == NULL)
@@ -54,4 +66,5 @@ void App_Init(void)
     TaskDht11Create();
     TaskLightCreate();
     TaskAsrCreate();
+    TaskOledCreate();
 }

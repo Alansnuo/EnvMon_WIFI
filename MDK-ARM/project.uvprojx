@@ -340,7 +340,7 @@
               <MiscControls></MiscControls>
               <Define>USE_HAL_DRIVER,STM32F103xB</Define>
               <Undefine></Undefine>
-              <IncludePath>../Core/Inc;../Drivers/STM32F1xx_HAL_Driver/Inc;../Drivers/STM32F1xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32F1xx/Include;../Drivers/CMSIS/Include;../BSP/dht11;../BSP;../BSP/ESP8266;../freertos;../freertos/inc;../freertos/port;../freertos/src;../APP;../BSP/bsp_delay;../BSP/BH1750;../BSP/ASR</IncludePath>
+              <IncludePath>../Core/Inc;../Drivers/STM32F1xx_HAL_Driver/Inc;../Drivers/STM32F1xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32F1xx/Include;../Drivers/CMSIS/Include;../BSP/dht11;../BSP;../BSP/ESP8266;../freertos;../freertos/inc;../freertos/port;../freertos/src;../APP;../BSP/bsp_delay;../BSP/BH1750;../BSP/ASR;..\BSP\OLED</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -788,6 +788,16 @@
               <FileType>5</FileType>
               <FilePath>..\APP\task_asr.h</FilePath>
             </File>
+            <File>
+              <FileName>task_oled.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\APP\task_oled.c</FilePath>
+            </File>
+            <File>
+              <FileName>task_oled.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\APP\task_oled.h</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -842,6 +852,21 @@
               <FileName>asr.h</FileName>
               <FileType>5</FileType>
               <FilePath>..\BSP\ASR\asr.h</FilePath>
+            </File>
+            <File>
+              <FileName>OLED.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\BSP\OLED\OLED.c</FilePath>
+            </File>
+            <File>
+              <FileName>OLED.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\BSP\OLED\OLED.h</FilePath>
+            </File>
+            <File>
+              <FileName>OLED_Font.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\BSP\OLED\OLED_Font.h</FilePath>
             </File>
           </Files>
         </Group>

@@ -44,6 +44,10 @@ static void TaskLight(void *argument)
             count++;
             printf("[LIGHT] #%lu  %u.%u lx\r\n",
                    (unsigned long)count, lux10 / 10U, lux10 % 10U);
+
+            /* 同时更新共享最新值给 OLED 显示. float 写非原子, 但 OLED 那边
+             * 进临界区再拷, 即便读到"旧高 4 字节 + 新低 4 字节"也只是数字跳一下. */
+            g_xLatestLux = lux;
         }
         else
         {

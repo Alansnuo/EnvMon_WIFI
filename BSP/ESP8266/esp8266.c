@@ -22,7 +22,7 @@
  * ⚠️ 打开后每次重试(每 5 秒)会多打 5~6 行, 排查完记得改回 0.
  * 也可以在 Keil 的 C/C++ → Define 里加 ESP8266_DEBUG=1 临时打开, 不用改代码. */
 #ifndef ESP8266_DEBUG
-#define ESP8266_DEBUG   0
+#define ESP8266_DEBUG   1
 #endif
 
 /* -------------------------------- 私有变量 -------------------------------- */
@@ -149,16 +149,34 @@ ESP8266_Status ESP8266_Init(void)
     printf("[ESP] AT+GMR ->\r\n%s\r\n", (char *)s_RxBuf);
 #endif
 
-    /* 关掉模块自己的自动重连: 它会在后台抢射频状态, 导致 CWJAP 连不上 */
-    st = ESP8266_SendCmd("AT+CWAUTOCONN=0\r\n", "OK", ESP8266_TIMEOUT);
-#if ESP8266_DEBUG
+    /* 先把模式设成 Station(1).
+     * ⚠️ 必须排在 AT+CWAUTOCONN 前面 —— CWAUTOCONN 只在 Station(1)/Station+AP(3) 下
+     *    有效, 模块 flash 里若留着出厂的 CWMODE=2(SoftAP), 这条会直接回 ERROR.
+     *    原来 CWMODE 只在 ConnectAP() 里发, 于是换一个 flash 里是 CWMODE=2 的模块,
+     *    init 一上来就卡死在下面的 CWAUTOCONN, 连热点那一步根本轮不到.
+     * CWMODE 是掉电保存的, 每次重发一遍不费事, 也省得依赖模块 flash 里存了什么 */
+    st = ESP8266_SendCmd("AT+CWMODE=1\r\n", "OK", ESP8266_TIMEOUT);
     if (st != ESP8266_OK)
     {
-        printf("[ESP] 'CWAUTOCONN' failed, st=%d\r\n", (int)st);
+#if ESP8266_DEBUG
+        printf("[ESP] 'CWMODE=1' failed, st=%d\r\n", (int)st);
         ESP8266_DumpRx();
-    }
 #endif
-    return st;
+        return st;
+    }
+
+    /* 关掉模块自己的自动重连: 它会在后台抢射频状态, 导致 CWJAP 连不上.
+     * ⚠️ 这只是一条"尽力而为"的优化 —— 某些老固件/某些模式下它回 ERROR,
+     *    不该因此让整个 WiFi 初始化失败, 所以失败只警告, 返回值不采纳. */
+    if (ESP8266_SendCmd("AT+CWAUTOCONN=0\r\n", "OK", ESP8266_TIMEOUT) != ESP8266_OK)
+    {
+#if ESP8266_DEBUG
+        printf("[ESP] 'CWAUTOCONN' failed (忽略, 继续)\r\n");
+        ESP8266_DumpRx();
+#endif
+    }
+
+    return ESP8266_OK;
 }
 
 /* ---------------------------------- WiFi ---------------------------------- */

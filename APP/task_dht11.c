@@ -40,6 +40,11 @@ static void TaskDht11(void *argument)
             printf("[DHT11] #%lu  Temp: %d C  Humi: %d%%\r\n",
                    (unsigned long)count, dht.temperature, dht.humidity);
 
+            /* 同时更新共享最新值给 OLED 显示. 两个 uint8_t 字段, 直接写:
+             * DHT11_Data 没位域, 写时不会被任务切换打断成"半新半旧".
+             * (OLED 那边进临界区再拷, 是为了一致性, 也为了volatile读不被合并.) */
+            g_xLatestDht11 = dht;
+
             /* 投给通信任务. 超时给 0: 队列满了就丢掉本次数据, 绝不在这里等 ——
              * 采集任务是生产者, 被消费者拖住就本末倒置了. */
             if (xQueueSend(g_xDht11Queue, &dht, 0) != pdPASS)
