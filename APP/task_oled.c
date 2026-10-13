@@ -39,25 +39,9 @@
 #include <stdio.h>
 #include <string.h>
 
-/* ----------------------------------------------------------------------------
- * 汉字字形下标
- *
- * ⚠️ 这里**故意不 include "OLED_Font.h"**:
- *    那张 Hzk1[30][32] 是**定义**(不是声明)放在头文件里的。头文件被两个 .c
- *    包含, 就会在两个目标文件里各生成一份同名外部符号, 链接时报
- *        L6200E: Symbol Hzk1 multiply defined (by oled.o and task_oled.o)
- *    所以字模表只让 OLED.c 去 include (真正要用它的地方), 本文件只要下标。
- *
- *    下面的值必须和 OLED_Font.h 里 HZK_xxx 枚举保持一致 —— 那张表的顺序
- *    跟参考工程一一对应, 是**别人给的数据, 不要重排**。
- * -------------------------------------------------------------------------- */
-enum {
-    HZK_WEN = 0, HZK_SHI, HZK_DU, HZK_GUANG, HZK_ZHAO, HZK_QIANG, HZK_DU2,
-    HZK_YAN, HZK_WU, HZK_NONG, HZK_DU3, HZK_XI, HZK_TONG, HZK_MO, HZK_SHI2,
-    HZK_SHOU, HZK_DONG, HZK_ZI, HZK_DONG2, HZK_XI2, HZK_TONG2, HZK_YU,
-    HZK_ZHI, HZK_SHE, HZK_ZHI2, HZK_JIE, HZK_MIAN, HZK_HUO, HZK_YAN2,
-    HZK_JINGGAO = 29
-};
+/* 汉字字形下标 HZK_xxx 在 OLED.h 的枚举里定义, 本文件 include "OLED.h" 即可用。
+ * 字模表 Hzk1[30][32] 在 OLED_Font.h, 只有 OLED.c include 它 (避免重复定义)，
+ * task_oled.c 不直接碰字模, 只用下标调 OLED_ShowChinese()。 */
 
 #define OLED_COLS       16U     /* 128x64 配 8x16 字体, 一行 16 个 ASCII */
 #define MENU_ROWS       3U      /* 菜单页除标题外能显示几项 */
@@ -139,19 +123,22 @@ static void DrawEnvPage(void)
     lux10 = (unsigned int)((lux * 10.0f) + 0.5f);
     now   = AppClock_Now();
 
-    /* 第 1 行: 温度。汉字 16 像素宽 = 占 2 列, 所以汉字在 1~2 列、数值从第 4 列起 */
+    /* 第 1 行: 温度。
+     * ⚠️ "温"占第 1~2 列, "度"占第 3~4 列 (16 像素 = 2 列), 所以数值必须从
+     *    第 5 列 (像素 32) 起 —— 从第 4 列起会和"度"的右半边 (像素 24~31) 重叠,
+     *    屏上看到的就是"度"被削掉一块。 */
     OLED_ShowChinese(1U, 1U, HZK_WEN);
     OLED_ShowChinese(1U, 2U, HZK_DU);
     (void)snprintf(buf, sizeof(buf), "%2d.%dC",
                    (int)dht.temperature, (int)dht.temperature_dec);
-    ShowPad(1U, 4U, buf, sizeof(buf), 5U);
+    ShowPad(1U, 5U, buf, sizeof(buf), 5U);
 
-    /* 第 2 行: 湿度 */
+    /* 第 2 行: 湿度 (汉字排列同第 1 行, 数值也从第 5 列起) */
     OLED_ShowChinese(2U, 1U, HZK_SHI);
     OLED_ShowChinese(2U, 2U, HZK_DU);
     (void)snprintf(buf, sizeof(buf), "%2d.%d%%",
                    (int)dht.humidity, (int)dht.humidity_dec);
-    ShowPad(2U, 4U, buf, sizeof(buf), 5U);
+    ShowPad(2U, 5U, buf, sizeof(buf), 5U);
 
     /* 第 3 行: 光照强度。4 个汉字排在 1~8 列, 数值从第 10 列起
      * (光照强度 = HZK_GUANG, HZK_ZHAO, HZK_QIANG, HZK_DU3 —— 第 4 个字是"度") */

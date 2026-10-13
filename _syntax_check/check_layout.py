@@ -19,17 +19,53 @@ def note(row, desc, used, where):
 
 
 print("=== main page (DrawEnvPage) ===")
-# row1: CJK at col 1..2 (2 cols each) then value at col 4, width 5
-note(1, "温+度 + %2d.%dC", 2 * 2 + (5 - 1), "CJK cols1-2(ends col4? no)")
+# A CJK glyph is 16px wide, ASCII 8px. Both are addressed by a 1-based column,
+# so their pixel spans differ: CJK at col c -> [(c-1)*16, +15], ASCII -> [(c-1)*8, +7].
+# Overlap between a glyph and the text next to it is a real bug (the 温度 row
+# started its value at col 4, which overwrote the right half of 度 at px 24-31).
+PX = 128
 
-# Be precise: OLED_ShowChinese(1,1) writes cols 1-2; (1,2) writes cols 3-4.
-# ShowPad(1,4,buf,5) writes cols 4..8.
-print("  (precise) row1: CJK 1-2 & 3-4, value starts col4 len5 -> cols 4..8   OK")
-print("  (precise) row2: CJK 1-2 & 3-4, value starts col4 len5 -> cols 4..8   OK")
-print("  (precise) row3: CJK 1-2,3-4,5-6,7-8; value starts col10 len7 -> cols 10..16  OK")
-print("  (precise) row4: wifi starts col1 len7 -> cols 1..7;", end=" ")
-print("time starts col9 len8 -> cols 9..16  OK")
-print("  (precise) row1 alarm CJK at col7 -> cols 13..14 (blink 灭: cols13-14 blanked) OK")
+
+def span(col, pxw, cjk):
+    """col is 1-based; CJK columns step 16px, ASCII columns 8px."""
+    step = 16 if cjk else 8
+    start = (col - 1) * step
+    return (start, start + pxw - 1)
+
+
+def row_ok(row, desc, items):
+    """items: (label, col, px_width, is_cjk)"""
+    spans = [(label, span(col, pxw, cjk)) for (label, col, pxw, cjk) in items]
+    used = max(s[1][1] for s in spans) + 1
+    over = used > PX
+    clash = []
+    for i in range(len(spans)):
+        for j in range(i + 1, len(spans)):
+            a, b = spans[i][1], spans[j][1]
+            if a[0] <= b[1] and b[0] <= a[1]:
+                clash.append("%s x %s" % (spans[i][0], spans[j][0]))
+    ok = (not over) and (not clash)
+    if not ok:
+        fail.append((row, desc, used))
+    print("  %-4s %-30s px %s" % ("OK" if ok else "OVER", desc,
+          " ".join("%s=%d..%d" % (l, s[0], s[1]) for l, s in spans)))
+    if clash:
+        print("        OVERLAP: " + ", ".join(clash))
+    if over:
+        print("        OVERFLOW: %d px (screen is %d)" % (used, PX))
+
+
+# row1/2: 温(col1) 度(col2), value ASCII at col5 width5 (=40px). No touch.
+row_ok(1, "温 度 + %2d.%dC", [("温", 1, 16, True), ("度", 2, 16, True), ("val", 5, 40, False)])
+row_ok(2, "湿 度 + %2d.%d%%", [("湿", 1, 16, True), ("度", 2, 16, True), ("val", 5, 40, False)])
+# row3: 光照强度 at col1..4, value ASCII at col10 width7 (=56px) -> px 72..127
+row_ok(3, "光照强度 + %4u lx",
+       [("光", 1, 16, True), ("照", 2, 16, True), ("强", 3, 16, True), ("度", 4, 16, True),
+        ("val", 10, 56, False)])
+# row4: WiFi:OK at col1 width7 (=56px), time at col9 width8 (=64px) -> px 64..127
+row_ok(4, "WiFi:%s + hh:mm:ss", [("wifi", 1, 56, False), ("time", 9, 64, False)])
+# row1 right side: warning glyph at CJK col 7 -> px 96..111
+row_ok(1, "warning glyph (col 13-14)", [("val", 5, 40, False), ("warn", 7, 16, True)])
 
 print("\n=== menu page (DrawMenuPage) ===")
 # format: "%c%-6s %4d %s"

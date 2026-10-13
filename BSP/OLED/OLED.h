@@ -24,6 +24,18 @@
  * 模块 SA0 脚接地时就是 0x3C. 若模块把 SA0 接 VCC, 改成 0x7A (7 位 0x3D). */
 #define OLED_ADDR_W      0x78
 
+/* 汉字字形下标 —— 和 OLED_Font.h 里 Hzk1[] 表的顺序一一对应, 不要重排。
+ * 放在这里 (而不是 OLED_Font.h) 是因为 task_oled.c 不能 include OLED_Font.h:
+ * Hzk1 在头文件里是**定义**不是声明, 两个 .c 都 include 会导致链接报
+ * L6200E multiply defined。OLED.h 两边都 include, 枚举放这里大家都看得到。 */
+enum {
+    HZK_WEN = 0, HZK_SHI, HZK_DU, HZK_GUANG, HZK_ZHAO, HZK_QIANG, HZK_DU2,
+    HZK_YAN, HZK_WU, HZK_NONG, HZK_DU3, HZK_XI, HZK_TONG, HZK_MO, HZK_SHI2,
+    HZK_SHOU, HZK_DONG, HZK_ZI, HZK_DONG2, HZK_XI2, HZK_TONG2, HZK_YU,
+    HZK_ZHI, HZK_SHE, HZK_ZHI2, HZK_JIE, HZK_MIAN, HZK_HUO, HZK_YAN2,
+    HZK_JINGGAO = 29
+};
+
 /* 必须在 MX_GPIO_Init() 之后调用. 内部有 BSP_DelayMs, 调度器启动前调用也安全. */
 void OLED_Init(void);
 void OLED_Clear(void);
