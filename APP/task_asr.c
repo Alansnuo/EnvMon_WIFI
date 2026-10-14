@@ -98,6 +98,7 @@ static void TaskAsr(void *argument)
 {
     uint32_t tick_report = 0U;      /* 定时播报计数 */
     uint32_t tick_alarm  = 0U;      /* 告警检查计数 */
+    uint32_t tick_led    = 0U;      /* LED 闪烁节拍计数 */
     uint8_t  last_alarm  = 0U;      /* 上次的告警码, 只在变化时播报 */
     char     line[ASR_LINE_MAX];
 
@@ -167,6 +168,24 @@ static void TaskAsr(void *argument)
                 last_alarm = code;
                 Asr_SendAlarm((code == 0U) ? ASR_ALARM_OK : code);
             }
+        }
+
+        /* ---------- 5. 告警 LED (PA6, 另一端接 3.3V) ----------
+         * 正常: PA6=HIGH → 两端都是 3.3V → LED 灭
+         * 超限: 每 500ms 翻转一次 → 1Hz 闪烁, 直到恢复正常自动熄灭 */
+        tick_led++;
+        if (g_xAlarmCode != 0U)
+        {
+            if (tick_led >= (500U / APP_ASR_PERIOD_MS))    /* 500ms 翻一次 */
+            {
+                tick_led = 0U;
+                HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_6);
+            }
+        }
+        else
+        {
+            tick_led = 0U;
+            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_SET);  /* 灭 */
         }
 
         /* ⚠️ APP_ASR_PERIOD_MS 绝不能设成 0: vTaskDelay(0) 不延时, 任务会忙等吃光 CPU */
