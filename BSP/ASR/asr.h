@@ -17,7 +17,7 @@
  *
  * 协议:
  *   MCU → 模块   "<动作码> <数值...>\r\n"
- *                  0 <温度> <湿度> <光线等级>    播报环境
+ *                  3 <温度> <湿度> <光线等级>    播报环境
  *                  1 <告警码>                    语音告警
  *                  2 <数值>                      只播报一个数字(语音问答)
  *   模块 → MCU   "TEMP\r\n" / "HUMI\r\n" / "LUX\r\n"   请求某一项数据
@@ -35,8 +35,11 @@ extern UART_HandleTypeDef huart1;           /* 定义在 Core/Src/usart.c */
 #define ASR_REQ_HUMI    "HUMI"
 #define ASR_REQ_LUX     "LUX"
 
-/* 动作码 */
-#define ASR_ACT_ENV     0U          /* 播报环境数据 */
+/* 动作码 —— ⚠️ ENV 不能用 0:
+ * 天问模块 parseInt() 超时返回 0, 串口缓冲残留的 \r\n 会让 serial_available
+ * 为 true → parseInt 超时返回 0 → 误触发 ENV 分支 → 温度/湿度/光照也全部
+ * 超时返回 0 → 播报"温度0湿度0光线很暗"。改成 3 后超时 0 不匹配任何 case。 */
+#define ASR_ACT_ENV     3U          /* 播报环境数据 */
 #define ASR_ACT_ALARM   1U          /* 播报语音告警 */
 #define ASR_ACT_NUM     2U          /* 只播报一个数字 */
 

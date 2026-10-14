@@ -126,6 +126,11 @@ exit:
     DHT11_HIGH();                                   /* 释放总线, 回到空闲 */
 
     if (ok && (buf[4] == (uint8_t)(buf[0] + buf[1] + buf[2] + buf[3]))) {
+        /* DHT11 规格书: 湿度 20~90%RH, 温度 0~50℃.
+         * 通信受干扰时可能读到全 0 或错位数据, 校验和碰巧对上 (0+0+0+0=0).
+         * 湿度 0 或温度 >50 一定是脏数据, 丢弃, 不更新上层. */
+        if (buf[0] == 0U || buf[2] > 50U) { return 0; }
+
         data->humidity        = buf[0];
         data->temperature     = buf[2];
         /* buf[1]/buf[3] 是小数位。

@@ -141,7 +141,7 @@ void BH1750_Init(void)
 uint8_t BH1750_ReadLuxChecked(float *lux)
 {
     uint16_t raw;
-    uint8_t  ok;
+    uint8_t  ok = 0U;
 
     if (lux == NULL) { return 0U; }
 

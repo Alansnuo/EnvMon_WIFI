@@ -23,35 +23,27 @@
 static void TaskAsr(void *argument);
 
 /* 光线分档: 0 = 过暗, 1 = 适宜, 2 = 过强。模块按这个等级决定播报哪一句 */
-static uint8_t Asr_LightLevel(int *lux_out)
+static uint8_t Asr_LightLevel(int lux)
 {
-    int lux = (int)g_xLatestLux;
-
-    *lux_out = lux;
-
     if (lux < (int)Thresh_Get(TH_LUX_DN)) { return ASR_LIGHT_DARK;   }
     if (lux > (int)Thresh_Get(TH_LUX_UP)) { return ASR_LIGHT_STRONG; }
     return ASR_LIGHT_OK;
 }
 
-/* DHT11 到底读到过数据没有?
- * ⚠️ 关键: DHT11_Read() 失败时 g_xLatestDht11 **保持上一次的值, 从没成功过就一直是 0**。
- *    直接拿 0 去比阈值, 传感器一坏就会永久播报"温度过低"。
- *    所以 温度/湿度 全 0 一律当作"没数据", 不参与告警判断。 */
-static uint8_t Asr_DhtValid(void)
-{
-    return ((g_xLatestDht11.temperature != 0U) ||
-            (g_xLatestDht11.humidity    != 0U)) ? 1U : 0U;
-}
-
 /* 阈值检查: 返回告警码, 0 = 一切正常 */
 static uint8_t Asr_CheckAlarm(void)
 {
-    int temp = (int)g_xLatestDht11.temperature;
-    int humi = (int)g_xLatestDht11.humidity;
-    int lux  = (int)g_xLatestLux;
+    int temp, humi, lux;
 
-    if (Asr_DhtValid() != 0U)
+    /* 共享数据拷一份再判断, 和 OLED 任务一致用临界区。
+     * 温度/湿度全 0 = DHT11 从没成功过, 不参与告警判断。 */
+    taskENTER_CRITICAL();
+    temp = (int)g_xLatestDht11.temperature;
+    humi = (int)g_xLatestDht11.humidity;
+    lux  = (int)g_xLatestLux;
+    taskEXIT_CRITICAL();
+
+    if (temp != 0 || humi != 0)
     {
         if (temp > (int)Thresh_Get(TH_TEMP_UP)) { return ASR_ALARM_TEMP_HI; }
         if (temp < (int)Thresh_Get(TH_TEMP_DN)) { return ASR_ALARM_TEMP_LO; }
@@ -68,17 +60,25 @@ static uint8_t Asr_CheckAlarm(void)
 /* 模块问某一项数据 → 回一个数值 */
 static void Asr_Answer(const char *req)
 {
+    int temp, humi, lux;
+
+    taskENTER_CRITICAL();
+    temp = (int)g_xLatestDht11.temperature;
+    humi = (int)g_xLatestDht11.humidity;
+    lux  = (int)g_xLatestLux;
+    taskEXIT_CRITICAL();
+
     if (strcmp(req, ASR_REQ_TEMP) == 0)
     {
-        Asr_SendNum((int)g_xLatestDht11.temperature);
+        Asr_SendNum(temp);
     }
     else if (strcmp(req, ASR_REQ_HUMI) == 0)
     {
-        Asr_SendNum((int)g_xLatestDht11.humidity);
+        Asr_SendNum(humi);
     }
     else if (strcmp(req, ASR_REQ_LUX) == 0)
     {
-        Asr_SendNum((int)g_xLatestLux);
+        Asr_SendNum(lux);
     }
     /* 别的字符串一律忽略 —— 防线上杂波 / 模块的其它输出被当成数据请求 */
 }
@@ -120,27 +120,37 @@ static void TaskAsr(void *argument)
         /* ---------- 2. 按键触发的播报 (必做3 的"按按键触发") ---------- */
         if (g_xAsrSpeakReq != 0U)
         {
-            int     lux   = 0;
-            uint8_t light = Asr_LightLevel(&lux);
+            int temp, humi, lux;
+            uint8_t light;
+
+            taskENTER_CRITICAL();
+            temp = (int)g_xLatestDht11.temperature;
+            humi = (int)g_xLatestDht11.humidity;
+            lux  = (int)g_xLatestLux;
+            taskEXIT_CRITICAL();
+            light = Asr_LightLevel(lux);
 
             g_xAsrSpeakReq = 0U;
             tick_report    = 0U;        /* 顺手清掉定时计数, 免得刚播完定时又播一次 */
-            Asr_SendEnv((int)g_xLatestDht11.temperature,
-                        (int)g_xLatestDht11.humidity,
-                        light);
+            Asr_SendEnv(temp, humi, light);
         }
 
         /* ---------- 3. 定时播报 (必做3 的"定时") ---------- */
         tick_report++;
         if (tick_report >= (APP_ASR_REPORT_PERIOD_MS / APP_ASR_PERIOD_MS))
         {
-            int     lux   = 0;
-            uint8_t light = Asr_LightLevel(&lux);
+            int temp, humi, lux;
+            uint8_t light;
+
+            taskENTER_CRITICAL();
+            temp = (int)g_xLatestDht11.temperature;
+            humi = (int)g_xLatestDht11.humidity;
+            lux  = (int)g_xLatestLux;
+            taskEXIT_CRITICAL();
+            light = Asr_LightLevel(lux);
 
             tick_report = 0U;
-            Asr_SendEnv((int)g_xLatestDht11.temperature,
-                        (int)g_xLatestDht11.humidity,
-                        light);
+            Asr_SendEnv(temp, humi, light);
         }
 
         /* ---------- 4. 阈值告警 (必做4) ---------- */

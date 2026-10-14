@@ -36,7 +36,7 @@
 #define CFG_TH_TEMP_DN        10        /* ℃   低于此值 → 温度过低 */
 #define CFG_TH_HUMI_UP        80        /* %RH 高于此值 → 湿度过高 */
 #define CFG_TH_HUMI_DN        30        /* %RH 低于此值 → 湿度过低 */
-#define CFG_TH_LUX_DN         100       /* lx  低于此值 → 光照不足(光线偏暗) */
-#define CFG_TH_LUX_UP         600       /* lx  高于此值 → 光照过强  */
+#define CFG_TH_LUX_DN         10        /* lx  低于此值 → 光照不足(光线偏暗) */
+#define CFG_TH_LUX_UP         200       /* lx  高于此值 → 光照过强  */
 
 #endif /* __APP_CONFIG_H */
