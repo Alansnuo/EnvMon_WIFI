@@ -9,13 +9,13 @@
  *
  *   主页面 PAGE_ENV            菜单 PAGE_MENU           编辑 PAGE_EDIT
  *  ┌──────────────────┐      ┌──────────────────┐    ┌──────────────────┐
- *  │温度 25C           │      │Menu 1/7          │    │Set TempHi        │
- *  │湿度 60%           │      │>TempHi      30 C │    │温 30 C           │
- *  │光照 300lx         │      │ TempLo      10 C │    │K2+ K3- K4=OK     │
- *  │     12:00:03     │      │ HumHi       80 % │    │                  │
+ *  │WiFi State        │      │Menu 1/7          │    │Set TempHi        │
+ *  │Connecting        │      │>TempHi      30 C │    │温 30 C           │
+ *  │                  │      │ TempLo      10 C │    │K2+ K3- K4=OK     │
+ *  │                  │      │ HumHi       80 % │    │                  │
  *  └──────────────────┘      └──────────────────┘    └──────────────────┘
  *
- * 主页面一屏放齐 必做2 要的四项: 温度 / 湿度 / 光照 / 当前时间。
+ * 主页面只显示 WiFi 连接状态。
  *
  * 画法: **每行(每个数值字段)都用 snprintf 拼成定宽的一小段, 再补空格写整段**。
  *   ⚠️ 为什么不"写模板 + 再单独写数字": 模板往往盖不满该字段, 上一帧留在末尾的
@@ -23,11 +23,9 @@
  *   ⚠️ 汉字 16 像素宽 = 占 2 列, ASCII 8 像素宽 = 占 1 列。两者列号不能混着
  *      累加, 所以下面汉字和 ASCII 的起始列都是**算好写死**的。
  *
- * WiFi 状态**不闪烁**, 只显示状态词 (按你的要求)。
- * 超限告警时第 4 行右侧闪烁一个警告图案 (必做4 的"OLED 闪烁提示"),
- * 告警码由语音任务算好写在 g_xAlarmCode 里 —— 只算一处, 两边不会打架。
+ * WiFi 状态只显示状态词, 不闪烁。
  *
- * 时间还是**模拟值**(板上没有 RTC), 用本任务的 1 秒周期当秒脉冲, 见 app_ui.h。
+ * 时钟仍在后台走字 (app_ui.c 的 AppClock_Tick), 但首页不再显示时间。
  * ========================================================================== */
 
 #include "task_oled.h"
@@ -48,18 +46,15 @@
 
 static void TaskOled(void *argument);
 
-/* 每帧翻转一次, 用来做告警闪烁 (周期 = 2 x APP_OLED_PERIOD_MS) */
-static uint8_t s_Blink = 0U;
-
 /* WiFi 状态 → 屏上那几个字的短词 */
 static const char *WifiText(uint8_t state)
 {
     switch (state)
     {
-        case WIFI_STATE_MQTT_OK:  return "OK";
-        case WIFI_STATE_AP_OK:    return "AP";
-        case WIFI_STATE_FAIL:     return "ERR";
-        default:                  return "...";
+        case WIFI_STATE_MQTT_OK:  return "Online";
+        case WIFI_STATE_AP_OK:    return "AP Linked";
+        case WIFI_STATE_FAIL:     return "Connect Fail";
+        default:                  return "Connecting";
     }
 }
 
@@ -106,68 +101,14 @@ void TaskOledCreate(void)
 /* --- 主页面: 温度 / 湿度 / 光照 / 时间 (必做2 要求的四项) --- */
 static void DrawEnvPage(void)
 {
-    DHT11_Data   dht;
-    float        lux;
-    unsigned int lux10;
-    uint8_t      wifi  = g_xWifiState;
-    uint8_t      alarm = g_xAlarmCode;
-    Clock_Time   now;
-    char         buf[OLED_COLS + 4U];
+    char    buf[OLED_COLS + 4U];
+    uint8_t wifi = g_xWifiState;
 
-    /* 三个采集值一起拷出来, 免得同一屏里读到"半新半旧"的组合 */
-    taskENTER_CRITICAL();
-    dht = g_xLatestDht11;
-    lux = g_xLatestLux;
-    taskEXIT_CRITICAL();
+    (void)snprintf(buf, sizeof(buf), "WiFi State");
+    ShowPad(1U, 1U, buf, sizeof(buf), OLED_COLS);
 
-    lux10 = (unsigned int)((lux * 10.0f) + 0.5f);
-    now   = AppClock_Now();
-
-    /* 第 1 行: 温度。
-     * ⚠️ "温"占第 1~2 列, "度"占第 3~4 列 (16 像素 = 2 列), 所以数值必须从
-     *    第 5 列 (像素 32) 起 —— 从第 4 列起会和"度"的右半边 (像素 24~31) 重叠,
-     *    屏上看到的就是"度"被削掉一块。 */
-    OLED_ShowChinese(1U, 1U, HZK_WEN);
-    OLED_ShowChinese(1U, 2U, HZK_DU);
-    (void)snprintf(buf, sizeof(buf), "%2d.%dC",
-                   (int)dht.temperature, (int)dht.temperature_dec);
-    ShowPad(1U, 5U, buf, sizeof(buf), 5U);
-
-    /* 第 2 行: 湿度 (汉字排列同第 1 行, 数值也从第 5 列起) */
-    OLED_ShowChinese(2U, 1U, HZK_SHI);
-    OLED_ShowChinese(2U, 2U, HZK_DU);
-    (void)snprintf(buf, sizeof(buf), "%2d.%d%%",
-                   (int)dht.humidity, (int)dht.humidity_dec);
-    ShowPad(2U, 5U, buf, sizeof(buf), 5U);
-
-    /* 第 3 行: 光照强度。4 个汉字排在 1~8 列, 数值从第 10 列起
-     * (光照强度 = HZK_GUANG, HZK_ZHAO, HZK_QIANG, HZK_DU3 —— 第 4 个字是"度") */
-    OLED_ShowChinese(3U, 1U, HZK_GUANG);
-    OLED_ShowChinese(3U, 2U, HZK_ZHAO);
-    OLED_ShowChinese(3U, 3U, HZK_QIANG);
-    OLED_ShowChinese(3U, 4U, HZK_DU3);
-    (void)snprintf(buf, sizeof(buf), "%4u lx", lux10 / 10U);
-    ShowPad(3U, 10U, buf, sizeof(buf), 7U);
-
-    /* WiFi 状态: 静态显示, 不闪烁 (按你的要求)。放第 4 行左边, 和时间同一行 */
-    (void)snprintf(buf, sizeof(buf), "WiFi:%s", WifiText(wifi));
-    ShowPad(4U, 1U, buf, sizeof(buf), 7U);
-
-    /* 第 4 行: 时间 (居中在右半屏) */
-    (void)snprintf(buf, sizeof(buf), "%02u:%02u:%02u",
-                   (unsigned)now.hour, (unsigned)now.min, (unsigned)now.sec);
-    ShowPad(4U, 9U, buf, sizeof(buf), 8U);
-
-    /* 超限告警: 第 1 行右侧闪烁, 画在汉字和温度值都够不到的地方 (必做4)。
-     * 只画"亮"的那半周期, "灭"的时候整个字段写空格盖掉 */
-    if ((alarm != 0U) && (s_Blink != 0U))
-    {
-        OLED_ShowChinese(1U, 7U, HZK_JINGGAO);      /* 第 13~14 列 */
-    }
-    else
-    {
-        OLED_ShowString(1U, 13U, "  ");             /* 一个汉字宽 = 两列 */
-    }
+    (void)snprintf(buf, sizeof(buf), "%s", WifiText(wifi));
+    ShowPad(2U, 1U, buf, sizeof(buf), OLED_COLS);
 }
 
 /* --- 菜单页: 滚动列表, 选中项前面加 '>' --- */
@@ -233,7 +174,6 @@ static void TaskOled(void *argument)
     for (;;)
     {
         AppClock_Tick();                /* 本任务周期正好 1 秒, 当秒脉冲用 */
-        s_Blink ^= 1U;                  /* 告警闪烁: 每帧翻一次 */
 
         switch (g_xUiPage)
         {

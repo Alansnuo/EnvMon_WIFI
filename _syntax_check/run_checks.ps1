@@ -7,8 +7,8 @@
 #   2. Hzk1 font table dimensions (compile-time asserts)
 #   3. duplicate global symbols (the L6200E class of error)
 #   4. OLED field widths fit 16 columns
-#   5. the two Hzk1 branches hold the intended tables
-#   6. key driver behaviour on a host build (debounce / long press / edges)
+#   5. glyph indices in OLED.h match the rows of the Hzk1 table
+#   6. key driver behaviour on a host build (host gcc + printf)
 
 $ErrorActionPreference = 'Continue'
 $root = Split-Path -Parent $PSScriptRoot
@@ -18,6 +18,12 @@ $armGcc = 'D:\Tool\arm-gnu-toolchain-15.3.rel1-mingw-w64-x86_64-arm-none-eabi\bi
 # Host compiler for section 6: the test binary runs on the PC and uses printf.
 $hostGcc = 'D:\Tool\mingw64\bin\gcc.exe'
 
+# NOTE: the stub directory comes FIRST on purpose. FreeRTOS's portmacro.h uses
+# ARMCC-only inline assembly (__asm { msr basepri, ... }), which gcc cannot
+# parse, so the FreeRTOS headers must be stubbed. Consequence: the stubs also
+# shadow the real OLED.h / key.h etc. Keep each stub in sync with the real
+# public interface -- a stale stub yields phantom errors (a fake OLED.h without
+# the HZK_* enum once made task_oled.c look broken).
 $inc = @('-I', '_syntax_check/stub', '-I', 'APP', '-I', 'BSP/OLED', '-I', 'BSP/dht11',
          '-I', 'BSP/ESP8266', '-I', 'BSP/ASR', '-I', 'BSP/KEY', '-I', 'BSP/BH1750',
          '-I', 'BSP/bsp_delay', '-I', 'Core/Inc')
@@ -58,8 +64,8 @@ python "$PSScriptRoot/check_layout.py" | Select-Object -Last 1
 if ($LASTEXITCODE -ne 0) { $bad++ }
 
 ''
-'=== 5. both Hzk1 branches hold the intended tables ==='
-python "$PSScriptRoot/check_both.py" | Select-Object -Last 1
+'=== 5. glyph indices match the Hzk1 table (names vs rows) ==='
+python "$PSScriptRoot/check_glyph_index.py" | Select-Object -Last 1
 if ($LASTEXITCODE -ne 0) { $bad++ }
 
 ''
