@@ -111,6 +111,93 @@ static void DrawEnvPage(void)
     ShowPad(2U, 1U, buf, sizeof(buf), OLED_COLS);
 }
 
+/* --- 温度显示页 --- */
+static void DrawTempPage(void)
+{
+    DHT11_Data dht;
+    char       buf[OLED_COLS + 4U];
+
+    taskENTER_CRITICAL();
+    dht = g_xLatestDht11;
+    taskEXIT_CRITICAL();
+
+    (void)snprintf(buf, sizeof(buf), "Temperature");
+    ShowPad(1U, 1U, buf, sizeof(buf), OLED_COLS);
+
+    (void)snprintf(buf, sizeof(buf), "%u C", (unsigned)dht.temperature);
+    ShowPad(2U, 1U, buf, sizeof(buf), OLED_COLS);
+}
+
+/* --- 湿度显示页 --- */
+static void DrawHumiPage(void)
+{
+    DHT11_Data dht;
+    char       buf[OLED_COLS + 4U];
+
+    taskENTER_CRITICAL();
+    dht = g_xLatestDht11;
+    taskEXIT_CRITICAL();
+
+    (void)snprintf(buf, sizeof(buf), "Humidity");
+    ShowPad(1U, 1U, buf, sizeof(buf), OLED_COLS);
+
+    (void)snprintf(buf, sizeof(buf), "%u %%RH", (unsigned)dht.humidity);
+    ShowPad(2U, 1U, buf, sizeof(buf), OLED_COLS);
+}
+
+/* --- 光照显示页 --- */
+static void DrawLuxPage(void)
+{
+    float lux;
+    char  buf[OLED_COLS + 4U];
+
+    taskENTER_CRITICAL();
+    lux = g_xLatestLux;
+    taskEXIT_CRITICAL();
+
+    (void)snprintf(buf, sizeof(buf), "Light (lx)");
+    ShowPad(1U, 1U, buf, sizeof(buf), OLED_COLS);
+
+    (void)snprintf(buf, sizeof(buf), "%d lx", (int)lux);
+    ShowPad(2U, 1U, buf, sizeof(buf), OLED_COLS);
+}
+
+/* --- 设置面第一级: 分类列表 (温度/湿度/光照/阈值设置) --- */
+static void DrawSetPage(void)
+{
+    uint8_t idx = g_xSetIdx;
+    uint8_t top;
+    uint8_t row;
+    char    buf[OLED_COLS + 4U];
+
+    if (idx >= SET_COUNT) { idx = 0U; }
+
+    top = (idx > 0U) ? (uint8_t)(idx - 1U) : 0U;
+    if (top > (uint8_t)(SET_COUNT - MENU_ROWS)) { top = (uint8_t)(SET_COUNT - MENU_ROWS); }
+
+    (void)snprintf(buf, sizeof(buf), "Settings %u/%u",
+                   (unsigned)(idx + 1U), (unsigned)SET_COUNT);
+    ShowPad(1U, 1U, buf, sizeof(buf), OLED_COLS);
+
+    for (row = 0U; row < MENU_ROWS; row++)
+    {
+        uint8_t item = (uint8_t)(top + row);
+        uint8_t line = (uint8_t)(row + 2U);
+
+        if (item >= SET_COUNT)
+        {
+            char empty[OLED_COLS + 1U];
+            empty[0] = '\0';
+            ShowPad(line, 1U, empty, sizeof(empty), OLED_COLS);
+            continue;
+        }
+
+        (void)snprintf(buf, sizeof(buf), "%c%s",
+                       (item == idx) ? '>' : ' ', Set_Name(item));
+        ShowPad(line, 1U, buf, sizeof(buf), OLED_COLS);
+    }
+}
+
 /* --- 菜单页: 滚动列表, 选中项前面加 '>' --- */
 static void DrawMenuPage(void)
 {
@@ -136,7 +223,9 @@ static void DrawMenuPage(void)
 
         if (item >= MENU_COUNT)
         {
-            ShowPad(line, 1U, (char *)"", 1U, OLED_COLS);
+            char empty[OLED_COLS + 1U];
+            empty[0] = '\0';
+            ShowPad(line, 1U, empty, sizeof(empty), OLED_COLS);
             continue;
         }
 
@@ -162,21 +251,41 @@ static void DrawEditPage(void)
                    Menu_Name(idx), (int)Menu_Value(idx), Menu_Unit(idx));
     ShowPad(2U, 1U, buf, sizeof(buf), OLED_COLS);
 
-    ShowPad(3U, 1U, (char *)"K2+ K3- K4=OK", 14U, OLED_COLS);
-    ShowPad(4U, 1U, (char *)"", 1U, OLED_COLS);
+    {
+        char tmp[OLED_COLS + 4U];
+        (void)snprintf(tmp, sizeof(tmp), "K2+ K3- K4=OK");
+        ShowPad(3U, 1U, tmp, sizeof(tmp), OLED_COLS);
+    }
+    {
+        char empty[OLED_COLS + 1U];
+        empty[0] = '\0';
+        ShowPad(4U, 1U, empty, sizeof(empty), OLED_COLS);
+    }
 }
 
 /* ========================= 任务本体 ========================= */
 static void TaskOled(void *argument)
 {
+    uint8_t lastPage = 0xFFU;
+
     (void)argument;                     /* 未使用, 显式忽略 */
 
     for (;;)
     {
         AppClock_Tick();                /* 本任务周期正好 1 秒, 当秒脉冲用 */
 
+        if (g_xUiPage != lastPage)      /* 只在切页时整屏擦一次, 避免每帧闪烁 */
+        {
+            OLED_Clear();
+            lastPage = g_xUiPage;
+        }
+
         switch (g_xUiPage)
         {
+            case UI_PAGE_TEMP: DrawTempPage(); break;
+            case UI_PAGE_HUMI: DrawHumiPage(); break;
+            case UI_PAGE_LUX:  DrawLuxPage();  break;
+            case UI_PAGE_SET:  DrawSetPage();  break;
             case UI_PAGE_MENU: DrawMenuPage(); break;
             case UI_PAGE_EDIT: DrawEditPage(); break;
             default:           DrawEnvPage();  break;

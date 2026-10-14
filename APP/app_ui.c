@@ -75,9 +75,9 @@ static const Thresh_Range s_Range[TH_COUNT] = {
     {   0, 2000, 10 },      /* 光照上限 */
 };
 
-/* 菜单上显示的项名, 索引和菜单项一一对应 (0 = Time) */
+/* 菜单上显示的项名, 索引和 Thresh_Id 一一对应 */
 static const char *s_MenuName[MENU_COUNT] = {
-    "Time", "TempHi", "TempLo", "HumHi", "HumLo", "LuxLo", "LuxHi"
+    "TempHi", "TempLo", "HumHi", "HumLo", "LuxLo", "LuxHi"
 };
 
 /* 上下限不能撞在一起: 调上限时不许低于下限, 反之亦然 */
@@ -130,9 +130,7 @@ const char *Menu_Name(uint8_t idx)
 
 const char *Menu_Unit(uint8_t idx)
 {
-    if (idx == MENU_TIME) { return "h"; }
-
-    switch ((Thresh_Id)(idx - 1U))
+    switch ((Thresh_Id)idx)
     {
         case TH_TEMP_UP:
         case TH_TEMP_DN: return "C";
@@ -144,29 +142,31 @@ const char *Menu_Unit(uint8_t idx)
 
 int16_t Menu_Value(uint8_t idx)
 {
-    if (idx == MENU_TIME)  { return (int16_t)AppClock_GetHour(); }
     if (idx >= MENU_COUNT) { return 0; }
-    return Thresh_Get((Thresh_Id)(idx - 1U));
+    return Thresh_Get((Thresh_Id)idx);
 }
 
 void Menu_Adj(uint8_t idx, int8_t dir)
 {
-    if (idx == MENU_TIME)
-    {
-        int16_t h = (int16_t)AppClock_GetHour();
-
-        h += (dir > 0) ? 1 : -1;
-        if (h < 0)  { h = 23; }
-        if (h > 23) { h = 0; }
-        AppClock_SetHour((uint8_t)h);
-        return;
-    }
-
     if (idx >= MENU_COUNT) { return; }
-    Thresh_Adj((Thresh_Id)(idx - 1U), dir);
+    Thresh_Adj((Thresh_Id)idx, dir);
 }
 
-/* ========================= 四、页面 ========================= */
+/* ========================= 四、设置面分类 ========================= */
+
+volatile uint8_t g_xSetIdx = 0U;
+
+static const char *s_SetName[SET_COUNT] = {
+    "Temperature", "Humidity", "Light", "Threshold"
+};
+
+const char *Set_Name(uint8_t idx)
+{
+    if (idx >= SET_COUNT) { return "??"; }
+    return s_SetName[idx];
+}
+
+/* ========================= 五、页面 ========================= */
 
 volatile uint8_t g_xUiPage    = UI_PAGE_ENV;
 volatile uint8_t g_xAlarmCode = 0U;
@@ -183,6 +183,7 @@ void UI_Init(void)
     g_xThresh[TH_LUX_UP]  = (int16_t)CFG_TH_LUX_UP;
 
     g_xMenuIdx   = 0U;
+    g_xSetIdx    = 0U;
     g_xUiPage    = UI_PAGE_ENV;
     g_xAlarmCode = 0U;
 

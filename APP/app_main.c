@@ -27,6 +27,17 @@ volatile DHT11_Data g_xLatestDht11 = {0, 0};
 volatile float      g_xLatestLux   = 0.0f;
 volatile uint8_t    g_xWifiState   = WIFI_STATE_CONNECTING;
 
+/* ========================= FreeRTOS 钩子 ========================= */
+
+/* configCHECK_FOR_STACK_OVERFLOW = 2 时 FreeRTOS 强制要求实现的钩子.
+ * 栈溢出不会"静默跑飞", 会触发这里, 死循环让你在调试器里一眼看到. */
+void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName)
+{
+    (void)xTask;
+    (void)pcTaskName;
+    for (;;) { }
+}
+
 /* ========================= 应用层总入口 ========================= */
 void App_Init(void)
 {

@@ -66,14 +66,13 @@ int16_t Thresh_Get(Thresh_Id id);
 void    Thresh_Adj(Thresh_Id id, int8_t dir);   /* dir = +1 / -1, 自动夹紧 */
 
 /* ============================================================================
- * 三、菜单 —— 一条平铺的列表, 第 0 项是时间, 后面 6 项依次是 6 个阈值
+ * 三、菜单 —— 一条平铺的列表, 6 项依次是 6 个阈值 (温/湿/光 各上下限)
  *
- *    菜单页显示的是 ASCII 项名 (Time/TempHi/...), 见 Menu_Name();
+ *    菜单页显示的是 ASCII 项名 (TempHi/...), 见 Menu_Name();
  *    中文标签只在需要的时候另外画 (task_oled.c 的菜单页)。
  * ========================================================================== */
 
-#define MENU_TIME       0U
-#define MENU_COUNT      (TH_COUNT + 1U)         /* 一共 7 项 */
+#define MENU_COUNT      TH_COUNT                /* 一共 6 项 */
 
 extern volatile uint8_t g_xMenuIdx;
 
@@ -85,16 +84,31 @@ void        Menu_Adj(uint8_t idx, int8_t dir);
 /* ============================================================================
  * 四、页面 —— 按键任务切页, OLED 任务照着画
  *
- *   主页面  温度 / 湿度 / 光照 / 时间 都在这一屏 (必做2 要求的四项)
- *   菜单页  列 7 项, KEY2/KEY3 上下选
- *   编辑页  改选中项的值
+ *   显示页  首页(WiFi) -> 温度 -> 湿度 -> 光照, KEY2/KEY3 循环切页
+ *   菜单页  设置面: 列 6 项阈值, KEY2/KEY3 上下选, KEY4 进编辑
+ *   编辑页  改选中项的值, KEY2/KEY3 加减
  * ========================================================================== */
 
-#define UI_PAGE_ENV     0U      /* 主页面: 温度 + 湿度 + 光照 + 时间 */
-#define UI_PAGE_MENU    1U      /* 菜单: 列表, KEY2/KEY3 上下移动 */
-#define UI_PAGE_EDIT    2U      /* 编辑: 改选中项的值 */
+#define UI_PAGE_ENV     0U      /* 首页: WiFi 连接状态 */
+#define UI_PAGE_TEMP    1U      /* 温度显示 */
+#define UI_PAGE_HUMI    2U      /* 湿度显示 */
+#define UI_PAGE_LUX     3U      /* 光照显示 */
+#define UI_PAGE_MENU    4U      /* 设置面第二级: 阈值列表 */
+#define UI_PAGE_EDIT    5U      /* 编辑: 改选中项的值 */
+#define UI_PAGE_SET     6U      /* 设置面第一级: 分类选择 */
 
 extern volatile uint8_t g_xUiPage;
+
+/* 设置面第一级: 温度 / 湿度 / 光照 / 阈值设置 */
+#define SET_TEMP    0U
+#define SET_HUMI    1U
+#define SET_LUX     2U
+#define SET_THRESH  3U
+#define SET_COUNT   4U
+
+extern volatile uint8_t g_xSetIdx;
+
+const char *Set_Name(uint8_t idx);
 
 /* 当前告警码 (0 = 正常, 其余见 asr.h 的 ASR_ALARM_xxx)。
  * **只由语音任务算** (每秒一次) 写进来, OLED 只读 —— 只算一处, 两边才不会打架。

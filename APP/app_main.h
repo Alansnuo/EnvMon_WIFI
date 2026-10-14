@@ -39,7 +39,7 @@
 #define APP_STACK_DHT11         256
 #define APP_STACK_LIGHT         256
 #define APP_STACK_ASR           256
-#define APP_STACK_OLED          256     /* 和采集任务同档: 没有大缓冲, 刷屏是逐字节走 I2C */
+#define APP_STACK_OLED          384     /* newlib snprintf 开销大, 留足余量防栈溢出 */
 #define APP_STACK_KEY           128     /* 只做 GPIO 读 + 几个赋值, 128 字绰绰有余 */
 
 /* ========================= 任务周期 ========================= */
