@@ -37,9 +37,6 @@
 #include <stdio.h>
 #include <string.h>
 
-/* 汉字字形下标 HZK_xxx 在 OLED.h 的枚举里定义, 本文件 include "OLED.h" 即可用。
- * 字模表 Hzk1[30][32] 在 OLED_Font.h, 只有 OLED.c include 它 (避免重复定义)，
- * task_oled.c 不直接碰字模, 只用下标调 OLED_ShowChinese()。 */
 
 #define OLED_COLS       16U     /* 128x64 配 8x16 字体, 一行 16 个 ASCII */
 #define MENU_ROWS       3U      /* 菜单页除标题外能显示几项 */
