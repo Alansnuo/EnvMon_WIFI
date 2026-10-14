@@ -29,7 +29,8 @@ static void TaskWifi(void *argument);
 /* ============================================================================
  * 上报报文 (原 app_json.c)
  *
- * 属性段是 \"Temp\":{\"value\":25.0}\,\"Hum\":{\"value\":60.0} 这一段,
+ * 属性段是 \"Temp\":{\"value\":25.0}\,\"Hum\":{\"value\":60.0}\,
+ *          \"lux\":{\"value\":256.8} 这一段,
  * 报文 = {"id","version","params"} + 属性段。
  *
  * 里面的 " 和 , 都多写了一层反斜杠: ESP8266 的 AT 指令按逗号切参数,
@@ -39,8 +40,8 @@ static void TaskWifi(void *argument);
  * 这样"发送失败"不用另写重试: 没 Commit, 下次 Report() 还会说"变了"。
  * ========================================================================== */
 
-#define JSON_PARAMS_SIZE    64
-#define JSON_TEXT_SIZE      128
+#define JSON_PARAMS_SIZE    96      /* 三段属性拼完最长约 78 字节 */
+#define JSON_TEXT_SIZE      192     /* 报文 = 帧头 + 属性段, 最长约 131 字节 */
 
 static char     s_Buf[JSON_TEXT_SIZE];          /* 拼好的报文 */
 static char     s_Params[JSON_PARAMS_SIZE];     /* 当前值的属性段 */
@@ -48,21 +49,29 @@ static char     s_Sent[JSON_PARAMS_SIZE];       /* 上次发成功的属性段 *
 static uint32_t s_MsgId;                        /* 报文序号 */
 static int      s_Temp;
 static int      s_Humi;
+static float    s_Lux;
 
 /* 填入要上报的值 */
 static void Json_SetTemp(int temp) { s_Temp = temp; }
 static void Json_SetHumi(int humi) { s_Humi = humi; }
+static void Json_SetLux(float lux) { s_Lux = lux; }
 
 /* 比较当前值和上次发成功的那份, 顺便把报文拼进 s_Buf.
  * 返回 1 = 值变了, s_Buf 里是能发出去的报文; 0 = 没变, 不用发 */
 static uint8_t Json_Report(void)
 {
+    unsigned long lux10;
+
     /* 属性名必须和 OneNET 控制台"功能定义"里完全一致, 大小写敏感.
-     * 值写 "%d.0": 属性是浮点型, 补 .0 又不用链进 float 版 printf */
+     * Temp/Hum 补 .0 冒充浮点; lux 是真浮点, 先放大 10 倍取整再拆成
+     * 整数位/小数位拼一位小数 —— 都不用链进 float 版 printf */
+    lux10 = (unsigned long)(s_Lux * 10.0f + 0.5f);      /* 四舍五入到 0.1 lux */
+
     (void)snprintf(s_Params, sizeof(s_Params),
         "\\\"Temp\\\":{\\\"value\\\":%d.0}\\,"
-        "\\\"Hum\\\":{\\\"value\\\":%d.0}",
-        s_Temp, s_Humi);
+        "\\\"Hum\\\":{\\\"value\\\":%d.0}\\,"
+        "\\\"lux\\\":{\\\"value\\\":%lu.%lu}",
+        s_Temp, s_Humi, lux10 / 10U, lux10 % 10U);
 
     if (strcmp(s_Params, s_Sent) == 0)
     {
@@ -136,6 +145,7 @@ void TaskWifiCreate(void)
 static void TaskWifi(void *argument)
 {
     DHT11_Data   dht;
+    float        lux;
     uint8_t      failStreak;            /* 连续失败计数, 成功一次就归零 */
 
     (void)argument;                     /* 未使用, 显式忽略 */
@@ -158,8 +168,14 @@ static void TaskWifi(void *argument)
                 break;                  /* 队列异常, 退出去重连 */
             }
 
+            /* 光照不走队列, 直接拷共享最新值 (和 OLED/语音任务同款读法) */
+            taskENTER_CRITICAL();
+            lux = g_xLatestLux;
+            taskEXIT_CRITICAL();
+
             Json_SetTemp(dht.temperature);
             Json_SetHumi(dht.humidity);
+            Json_SetLux(lux);
 
             /* 值没变就没必要发, 报文也不用拼 */
             if (Json_Report() == 0)
