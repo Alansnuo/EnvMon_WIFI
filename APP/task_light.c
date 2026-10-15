@@ -12,6 +12,11 @@
 
 static void TaskLight(void *argument);
 
+/* 亮度平滑过渡: 把 2 秒一次的"突变"拆成每 20ms 一档的渐变,
+ * 一整周期走完 (100 档), 视觉上连续不跳变 */
+#define LIGHT_FADE_STEP_MS   20U
+#define LIGHT_FADE_STEPS     (APP_LIGHT_PERIOD_MS / LIGHT_FADE_STEP_MS)
+
 /**
  * @brief 光控联动映射: 光照越暗, 灯越亮.
  * @param lux 当前照度 (lx).
@@ -44,26 +49,34 @@ void TaskLightCreate(void)
 /* ========================= 任务本体 ========================= */
 static void TaskLight(void *argument)
 {
-    float lux;
+    float    lux;
+    uint16_t bright = 0U;       /* 当前亮度, 跨周期保留, 用于平滑过渡 */
 
     (void)argument;                     /* 未使用, 显式忽略 */
 
     for (;;)
     {
+        uint16_t start, target;
+        int32_t  diff;
+        uint32_t i;
+
+        /* 读一次照度, 更新共享值 (读失败就沿用上次的 g_xLatestLux) */
         if (BH1750_ReadLuxChecked(&lux))
         {
-            /* 更新共享最新值给 OLED 显示 (float 写非原子, OLED 侧进临界区再拷) */
             g_xLatestLux = lux;
-
-            /* 光控联动: 按当前照度实时调整 PA8 调光灯亮度 */
-            PWM_SetBright(Light_ToBright(lux));
         }
-        /* 读失败不处理: 多半是器件没应答 (查 U6 供电 / PB6=SCL / PB7=SDA / 上拉),
-         * 下个周期再试 */
 
-        /* 这里用 vTaskDelay 而不是忙等: 2 秒里必须让出 CPU,
-         * 否则会把 WiFi / DHT11 全饿死. (BH1750 转换那 180ms 在驱动里
-         * 已经用 BSP_DelayMs 让出过一次了.) */
-        vTaskDelay(pdMS_TO_TICKS(APP_LIGHT_PERIOD_MS));
+        /* 光控联动: 算出目标亮度, 再分步把当前亮度平滑逼近目标 */
+        start  = bright;
+        target = Light_ToBright(g_xLatestLux);
+        diff   = (int32_t)target - (int32_t)start;
+
+        for (i = 1U; i <= LIGHT_FADE_STEPS; i++)
+        {
+            bright = (uint16_t)((int32_t)start + diff * (int32_t)i / (int32_t)LIGHT_FADE_STEPS);
+            PWM_SetBright(bright);
+            /* 每 20ms 让出一次 CPU, 2 秒里不忙等, 不会饿死 WiFi / DHT11 */
+            vTaskDelay(pdMS_TO_TICKS(LIGHT_FADE_STEP_MS));
+        }
     }
 }
