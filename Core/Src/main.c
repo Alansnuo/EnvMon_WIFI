@@ -93,6 +93,7 @@ int main(void)
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
   MX_TIM2_Init();
+  MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
   /* ---- 应用层全部在这里启动 --------------------------------------------
    * App_Init() 内部: DHT11 初始化 → 建数据队列 → 建 WiFi / DHT11 两个任务.

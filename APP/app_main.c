@@ -11,6 +11,7 @@
 #include "asr.h"
 #include "dht11.h"
 #include "key.h"
+#include "pwm.h"
 #include "task_asr.h"
 #include "task_dht11.h"
 #include "task_key.h"
@@ -58,6 +59,9 @@ void App_Init(void)
     /* OLED 软件 I2C (PB8=SCL, PB9=SDA). 内部有上电延时, 放调度器前才不挡别人.
      * ⚠️ 别在任务里再调 OLED_Init(): 它会重配 PB8/PB9 + 全屏清零 + 上电延时, 屏会闪. */
     OLED_Init();
+
+    /* PWM 调光 (TIM1_CH1 → PA8): 起输出并先置灭, 之后由光照任务按亮度调 */
+    PWM_Init();
 
     /* 4 个按键 (PA0/PA1/PA4/PA5, 内部上拉, 按下接地)。放调度器前只是把脚配好,
      * 真正的扫描在 task_key.c 里每 20ms 一次。 */

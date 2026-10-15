@@ -337,7 +337,7 @@
               <MiscControls />
               <Define>USE_HAL_DRIVER,STM32F103xB</Define>
               <Undefine />
-              <IncludePath>../Core/Inc;../Drivers/STM32F1xx_HAL_Driver/Inc;../Drivers/STM32F1xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32F1xx/Include;../Drivers/CMSIS/Include;../BSP/dht11;../BSP;../BSP/ESP8266;../freertos;../freertos/inc;../freertos/port;../freertos/src;../APP;../BSP/bsp_delay;../BSP/BH1750;../BSP/ASR;../BSP/OLED;../BSP/KEY;../BSP/MyI2C</IncludePath>
+              <IncludePath>../Core/Inc;../Drivers/STM32F1xx_HAL_Driver/Inc;../Drivers/STM32F1xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32F1xx/Include;../Drivers/CMSIS/Include;../BSP/dht11;../BSP;../BSP/ESP8266;../freertos;../freertos/inc;../freertos/port;../freertos/src;../APP;../BSP/bsp_delay;../BSP/BH1750;../BSP/ASR;../BSP/OLED;../BSP/KEY;../BSP/MyI2C;../BSP/PWM</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -862,6 +862,16 @@
               <FileName>key.h</FileName>
               <FileType>5</FileType>
               <FilePath>..\BSP\KEY\key.h</FilePath>
+            </File>
+            <File>
+              <FileName>pwm.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\BSP\PWM\pwm.c</FilePath>
+            </File>
+            <File>
+              <FileName>pwm.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\BSP\PWM\pwm.h</FilePath>
             </File>
           </Files>
         </Group>

@@ -195,8 +195,12 @@ ESP8266_Status ESP8266_MQTT_Publish(const char topic[], const char data[])
 
 /* ================================== 对时 ================================== */
 
-/* ESP-AT 原生 SNTP: 开服务定死时区, 之后直接读模块回的格式化时间串 */
+/* ESP-AT 原生 SNTP: 开服务定死时区, 之后直接读模块回的格式化时间串.
+ * SNTP 后台异步同步, 复位模块后首次联网要等它跟 NTP 对完; 单轮给足时间,
+ * 一轮没同步上就重开 SNTP 再等一轮 —— 否则一次超时就永久停在 00:00 */
 #define NETTIME_MIN_YEAR         2020U            /* 年份早于此视为"还没同步上" */
+#define NETTIME_SYNC_TIMEOUT     20000U           /* 单轮等 SNTP 同步的上限(ms) */
+#define NETTIME_RETRY            2U               /* 同步轮数(含首轮) */
 
 /**
  * @brief  联网对一次时, 见 esp8266.h
@@ -207,6 +211,7 @@ ESP8266_Status ESP8266_GetNetTime(uint8_t *hour, uint8_t *min, uint8_t *sec)
     char          *p;
     char          *q;
     uint32_t       tick;
+    uint8_t        retry = 0U;
 
     if ((hour == NULL) || (min == NULL) || (sec == NULL))
     {
@@ -253,8 +258,15 @@ ESP8266_Status ESP8266_GetNetTime(uint8_t *hour, uint8_t *min, uint8_t *sec)
             }
         }
 
-        if ((HAL_GetTick() - tick) > ESP8266_AP_TIMEOUT)
+        if ((HAL_GetTick() - tick) > NETTIME_SYNC_TIMEOUT)
         {
+            /* 这一轮没等到, 重开一次 SNTP 后台重新对时, 再给一轮时间 */
+            if ((++retry) < NETTIME_RETRY)
+            {
+                (void)ESP8266_SendCmd("AT+CIPSNTPCFG=1,8\r\n", "OK", ESP8266_TIMEOUT);
+                tick = HAL_GetTick();
+                continue;
+            }
             return ESP8266_ERR_TIMEOUT;
         }
         BSP_DelayMs(500);
