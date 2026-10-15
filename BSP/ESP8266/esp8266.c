@@ -195,10 +195,8 @@ ESP8266_Status ESP8266_MQTT_Publish(const char topic[], const char data[])
 
 /* ================================== 对时 ================================== */
 
-/* 时间服务器和请求路径: 响应体是 {"server_time":<Unix秒>} 一行 JSON */
-#define NETTIME_HOST             "api.pinduoduo.com"
-#define NETTIME_REQUEST          "GET http://api.pinduoduo.com/api/server/_stm\r\n"
-#define NETTIME_BEIJING_OFFSET_S 28800UL          /* 北京时间 = UTC + 8h */
+/* ESP-AT 原生 SNTP: 开服务定死时区, 之后直接读模块回的格式化时间串 */
+#define NETTIME_MIN_YEAR         2020U            /* 年份早于此视为"还没同步上" */
 
 /**
  * @brief  联网对一次时, 见 esp8266.h
@@ -206,94 +204,61 @@ ESP8266_Status ESP8266_MQTT_Publish(const char topic[], const char data[])
 ESP8266_Status ESP8266_GetNetTime(uint8_t *hour, uint8_t *min, uint8_t *sec)
 {
     ESP8266_Status st;
-    char         *p;
-    uint32_t      unixSec;
-    uint32_t      secOfDay;
-    uint32_t      tick;
+    char          *p;
+    char          *q;
+    uint32_t       tick;
 
     if ((hour == NULL) || (min == NULL) || (sec == NULL))
     {
         return ESP8266_ERR_PARAM;
     }
 
-    /* 连服务器 (HTTP 80). 这步没成, 后面的都不用走 */
-    (void)snprintf(s_Cmd, sizeof(s_Cmd),
-                   "AT+CIPSTART=\"TCP\",\"%s\",80\r\n", NETTIME_HOST);
-    st = ESP8266_Exec("CONNECT", ESP8266_TIMEOUT);
+    /* 打开 SNTP 并定死时区 UTC+8: 之后模块回显的就是北京时间 */
+    st = ESP8266_SendCmd("AT+CIPSNTPCFG=1,8\r\n", "OK", ESP8266_TIMEOUT);
     if (st != ESP8266_OK)
     {
         return st;
     }
 
-    /* 进透传: 两条都 OK 之后, 发什么就是什么 */
-    st = ESP8266_SendCmd("AT+CIPMODE=1\r\n", "OK", ESP8266_TIMEOUT);
-    if (st != ESP8266_OK) { goto EXIT; }
-
-    st = ESP8266_SendCmd("AT+CIPSEND\r\n", ">", ESP8266_TIMEOUT);
-    if (st != ESP8266_OK) { goto EXIT; }
-
-    /* 发 GET, 轮询响应里的 "server_time" */
-    ESP8266_ClearRxBuf();
-    st = ESP8266_SendRaw(NETTIME_REQUEST);
-    if (st != ESP8266_OK) { goto EXIT; }
-
-    p    = NULL;
+    /* SNTP 后台异步同步, 刚开时模块内部还是 1970 默认值, 所以要轮询:
+     * 直到年份 >= 2020 才算真拿到时间, 否则超时收场 */
     tick = HAL_GetTick();
     for (;;)
     {
-        ESP8266_RxDrain();
-
-        p = strstr((char *)s_RxBuf, "server_time");
-        if (p != NULL)
+        /* 用 "OK" 收尾(而非 "CIPSNTPTIME:"), 确保整行时间串收全再解析 */
+        st = ESP8266_SendCmd("AT+CIPSNTPTIME?\r\n", "OK", ESP8266_TIMEOUT);
+        if (st == ESP8266_OK)
         {
-            break;
+
+            /* "+CIPSNTPTIME:Fri Nov 17 17:09:22 2023"
+             * 键名自带冒号, 其后再找冒号就是 HH 与 MM 之间那个 */
+            p = strstr((char *)s_RxBuf, "CIPSNTPTIME:");
+            q = (p != NULL) ? strchr(p, ':') : NULL;
+            q = (q != NULL) ? strchr(q + 1, ':') : NULL;
+
+            if ((q != NULL) &&
+                (q[-2] >= '0') && (q[-2] <= '9') && (q[-1] >= '0') && (q[-1] <= '9') &&
+                (q[1]  >= '0') && (q[1]  <= '9') && (q[2]  >= '0') && (q[2]  <= '9') &&
+                (q[3]  == ':') &&
+                (q[4]  >= '0') && (q[4]  <= '9') && (q[5]  >= '0') && (q[5]  <= '9') &&
+                (q[6]  == ' ') &&
+                (q[7]  >= '0') && (q[7]  <= '9') && (q[8]  >= '0') && (q[8]  <= '9') &&
+                (q[9]  >= '0') && (q[9]  <= '9') && (q[10] >= '0') && (q[10] <= '9') &&
+                ((q[7] - '0') * 1000 + (q[8] - '0') * 100 + (q[9] - '0') * 10 + (q[10] - '0') >= NETTIME_MIN_YEAR))
+            {
+                *hour = (uint8_t)(((q[-2] - '0') * 10) + (q[-1] - '0'));
+                *min  = (uint8_t)(((q[1]  - '0') * 10) + (q[2]  - '0'));
+                *sec  = (uint8_t)(((q[4]  - '0') * 10) + (q[5]  - '0'));
+                return ESP8266_OK;
+            }
         }
 
-        if (s_RxLen >= ESP8266_RX_BUF_SIZE - 1U)
+        if ((HAL_GetTick() - tick) > ESP8266_AP_TIMEOUT)
         {
-            st = ESP8266_ERR_BUF_FULL;
-            goto EXIT;
+            return ESP8266_ERR_TIMEOUT;
         }
-        if ((HAL_GetTick() - tick) > ESP8266_TIMEOUT)
-        {
-            st = ESP8266_ERR_TIMEOUT;
-            goto EXIT;
-        }
-        BSP_DelayMs(1);
+        BSP_DelayMs(500);
     }
-
-    /* "server_time":1750000000 —— 越过键名(11字符), 跳到第一个数字手动攒十进制 */
-    p += 11U;
-    while ((*p != '\0') && ((*p < '0') || (*p > '9')))
-    {
-        p++;
-    }
-    if (*p == '\0')
-    {
-        st = ESP8266_ERR_AT;
-        goto EXIT;
-    }
-
-    unixSec = 0U;
-    while ((*p >= '0') && (*p <= '9'))
-    {
-        unixSec = (unixSec * 10U) + (uint32_t)(*p - '0');
-        p++;
-    }
-
-    secOfDay = (unixSec + NETTIME_BEIJING_OFFSET_S) % 86400UL;
-    *hour = (uint8_t)(secOfDay / 3600U);
-    *min  = (uint8_t)((secOfDay % 3600U) / 60U);
-    *sec  = (uint8_t)(secOfDay % 60U);
-
-EXIT:
-    /* 退透传: +++ 前后各要 1 秒静默; 再关连接. 时间已到手, 这里的失败不回传 */
-    BSP_DelayMs(1000);
-    (void)ESP8266_SendRaw("+++");
-    BSP_DelayMs(1000);
-    (void)ESP8266_SendCmd("AT+CIPCLOSE\r\n", "OK", ESP8266_TIMEOUT);
-
-    return st;
 }
 
 /* ================================ 内部实现 ================================ */

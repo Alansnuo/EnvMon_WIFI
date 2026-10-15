@@ -32,7 +32,7 @@
  * 现在写死在这里。等做了按键, 改成运行时变量 + 存 Flash 即可
  * (task_asr.c 里 Asr_CheckAlarm() 读的就是这几个)。
  * 光照还多一个用途: 分档决定模块播报"光线充足/偏暗/很暗"。 */
-#define CFG_TH_TEMP_UP        30        /* ℃   高于此值 → 温度过高 */
+#define CFG_TH_TEMP_UP        35        /* ℃   高于此值 → 温度过高 */
 #define CFG_TH_TEMP_DN        10        /* ℃   低于此值 → 温度过低 */
 #define CFG_TH_HUMI_UP        80        /* %RH 高于此值 → 湿度过高 */
 #define CFG_TH_HUMI_DN        30        /* %RH 低于此值 → 湿度过低 */

@@ -17,7 +17,6 @@
 #include "dht11.h"
 #include "esp8266.h"
 #include "app_ui.h"
-#include "app_ui.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -102,10 +101,6 @@ static uint8_t WifiConnect(void);
  * 过程中同步更新 g_xWifiState, 让 OLED 能看出卡在哪一步. */
 static uint8_t WifiConnect(void)
 {
-    uint8_t hour;
-    uint8_t min;
-    uint8_t sec;
-
     g_xWifiState = WIFI_STATE_CONNECTING;
 
     if (ESP8266_Init() != ESP8266_OK)

@@ -68,9 +68,8 @@ ESP8266_Status ESP8266_ConnectAP(const char ssid[], const char password[]);
 /* ================================== 对时 ================================== */
 
 /**
- * @brief  连 HTTP 时间服务器对一次时 (拿 Unix 秒, 折成北京时间).
- *         内部走透传发 GET 并解析 server_time, 结束自己退透传、关连接;
- *         必须在 ConnectAP() 成功之后调用
+ * @brief  用 ESP-AT 原生 SNTP 对一次时 (内部定死时区 UTC+8,
+ *         直接解析模块回的格式化时间串), 必须在 ConnectAP() 成功之后调用
  * @param  hour  北京时间 时 (0~23)
  * @param  min   分 (0~59)
  * @param  sec   秒 (0~59)
