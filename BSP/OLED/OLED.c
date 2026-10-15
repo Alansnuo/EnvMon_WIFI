@@ -70,23 +70,6 @@ static void OLED_I2C_SendByte(uint8_t Byte)
     BSP_DelayUs(OLED_HALF_US);
 }
 
-/* 引脚初始化. 幂等, 重调无害: 每次都重新配 GPIO + 复位总线. */
-static void OLED_I2C_Init(void)
-{
-    GPIO_InitTypeDef gpio = {0};
-
-    __HAL_RCC_GPIOB_CLK_ENABLE();       /* 幂等, 不依赖 MX_GPIO_Init 的调用顺序 */
-
-    gpio.Pin   = OLED_SCL_PIN | OLED_SDA_PIN;
-    gpio.Mode  = GPIO_MODE_OUTPUT_OD;   /* 开漏, 上拉由 OLED 模块提供 */
-    gpio.Pull  = GPIO_NOPULL;
-    gpio.Speed = GPIO_SPEED_FREQ_HIGH;  /* 软件 I2C 靠翻脚速度 */
-    HAL_GPIO_Init(OLED_SCL_PORT, &gpio);
-
-    SCL_H();
-    SDA_H();                            /* 空闲态: 两根线都放开 */
-}
-
 /**
   * @brief  OLED写命令
   * @param  Command 要写入的命令
@@ -298,8 +281,6 @@ void OLED_Init(void)
     {
         for (j = 0; j < 1000; j++);
     }
-
-    OLED_I2C_Init();                     /* 端口初始化 */
 
     OLED_WriteCommand(0xAE);    /* 关闭显示 */
 

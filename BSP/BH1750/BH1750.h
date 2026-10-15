@@ -8,12 +8,7 @@
  * 直接输出照度: lux = 原始计数值 / 1.2, 量程 0~54612 lx, 分辨率 1 lx.
  * GY-302 自带 4.7k 上拉, 不用外加. */
 
-/* 对应 PCB 上 U6: U6.3 → PB6(SCL), U6.4 → PB7(SDA).
- * 参考工程用 PB4/PB5. PB6/PB7 不是 JTAG 脚, 所以不需要 JTAG 重映射. */
-#define BH1750_SCL_PORT  GPIOB
-#define BH1750_SCL_PIN   GPIO_PIN_6
-#define BH1750_SDA_PORT  GPIOB
-#define BH1750_SDA_PIN   GPIO_PIN_7
+/* 总线引脚已抽到 BSP/MyI2C (PB6=SCL, PB7=SDA), 本驱动只保留器件地址. */
 
 /* 7 位地址 0x23 左移一位 + 写方向. 读操作 = BH1750_ADDR_W | 0x01.
  * GY-302 的 ADDR 脚接地, 所以地址就是 0x23. */

@@ -48,7 +48,7 @@ void App_Init(void)
     DHT11_Init();
 
     /* 光照同样放在调度器之前: 内部只有一次 10ms 的 BSP_DelayMs, 忙等得起.
-     * ⚠️ 不要在任务里再调 BH1750_Init() —— 它会重配 PB6/PB7 并重发上电命令. */
+     * ⚠️ 不要在任务里再调 BH1750_Init() —— 它只会重发上电命令. */
     BH1750_Init();
 
     /* 天问语音: 只打开 USART1 的 RXNE 中断. USART1 本身由 MX_USART1_UART_Init() 配好,

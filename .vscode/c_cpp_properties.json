@@ -18,6 +18,7 @@
                 "${workspaceFolder}/APP",
                 "${workspaceFolder}/BSP/bsp_delay",
                 "${workspaceFolder}/BSP/BH1750",
+                "${workspaceFolder}/BSP/MyI2C",
                 "${workspaceFolder}/BSP/ASR",
                 "D:/Download/kile5/PACK/ARM/ARMCC/include",
                 "D:/Download/kile5/PACK/ARM/ARMCC/include/arm_linux",
