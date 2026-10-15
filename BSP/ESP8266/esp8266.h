@@ -23,8 +23,8 @@
 extern UART_HandleTypeDef huart2;           /* USART2, 定义在 usart.c */
 
 #define ESP8266_UART          huart2        /* USART2: PA2=TX, PA3=RX */
-#define ESP8266_RST_PIN       GPIO_PIN_1    /* RST: PB1 */
-#define ESP8266_RST_PORT      GPIOB
+#define ESP8266_RST_PIN       GPIO_PIN_6    /* RST: PA6 */
+#define ESP8266_RST_PORT      GPIOA
 
 /* -------------------------------- 超时(ms) -------------------------------- */
 #define ESP8266_TIMEOUT       5000          /* 一般 AT 命令等应答 */
