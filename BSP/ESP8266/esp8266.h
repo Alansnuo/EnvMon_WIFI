@@ -7,7 +7,7 @@
  * 顺序阻塞: 每个接口内部"发一条命令 → 等应答 → 再发下一条", 返回前调用者不会
  * 往下走 —— 只适合放在独立任务里, 一次连不上的流程最坏能连续占一分钟.
  *
- * 用法: Init() → ConnectAP() → MQTT_SetParam() → MQTT_ConnectBroker() → 循环 Publish()
+ * 用法: Init() → ConnectAP() → GetNetTime() → MQTT_SetParam() → MQTT_ConnectBroker() → 循环 Publish()
  *
  * 指令名以本固件实际支持的为准: 老资料里的 AT+MQTTCFG 在这儿叫
  * AT+MQTTUSERCFG + AT+MQTTCONNCFG; 心跳由模块自己按 keepalive 发
@@ -64,6 +64,19 @@ ESP8266_Status ESP8266_Init(void);
  * @retval ESP8266_OK = 成功, 其余 = 失败原因
  */
 ESP8266_Status ESP8266_ConnectAP(const char ssid[], const char password[]);
+
+/* ================================== 对时 ================================== */
+
+/**
+ * @brief  连 HTTP 时间服务器对一次时 (拿 Unix 秒, 折成北京时间).
+ *         内部走透传发 GET 并解析 server_time, 结束自己退透传、关连接;
+ *         必须在 ConnectAP() 成功之后调用
+ * @param  hour  北京时间 时 (0~23)
+ * @param  min   分 (0~59)
+ * @param  sec   秒 (0~59)
+ * @retval ESP8266_OK = 拿到时间, 其余 = 失败原因
+ */
+ESP8266_Status ESP8266_GetNetTime(uint8_t *hour, uint8_t *min, uint8_t *sec);
 
 /* ================================== MQTT ================================== */
 

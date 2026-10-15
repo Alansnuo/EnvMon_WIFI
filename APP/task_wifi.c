@@ -12,9 +12,12 @@
 #include "task_wifi.h"
 #include "app_config.h"
 #include "app_main.h"
+#include "app_ui.h"
 
 #include "dht11.h"
 #include "esp8266.h"
+#include "app_ui.h"
+#include "app_ui.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -95,10 +98,14 @@ static void Json_Commit(void)
 
 static uint8_t WifiConnect(void);
 
-/* 复位模块 → 接热点 → 配 MQTT 参数 → 连 Broker. 失败返回 0, 由外层决定重试.
+/* 复位模块 → 接热点 → 对时 → 配 MQTT 参数 → 连 Broker. 失败返回 0, 由外层决定重试.
  * 过程中同步更新 g_xWifiState, 让 OLED 能看出卡在哪一步. */
 static uint8_t WifiConnect(void)
 {
+    uint8_t hour;
+    uint8_t min;
+    uint8_t sec;
+
     g_xWifiState = WIFI_STATE_CONNECTING;
 
     if (ESP8266_Init() != ESP8266_OK)
@@ -113,6 +120,19 @@ static uint8_t WifiConnect(void)
         return 0;
     }
     g_xWifiState = WIFI_STATE_AP_OK;        /* 热点通了, 接着搞 MQTT */
+
+    /* 顺手对一次时: 软件时钟没有掉电记忆, 每次联网成功都校准一遍.
+     * 失败不拦流程 —— 时钟顶多先显示 00:00, MQTT 该连还连 */
+    {
+        uint8_t hour;
+        uint8_t min;
+        uint8_t sec;
+
+        if (ESP8266_GetNetTime(&hour, &min, &sec) == ESP8266_OK)
+        {
+            AppClock_SetTime(hour, min, sec);
+        }
+    }
 
     if (ESP8266_MQTT_SetParam(CFG_MQTT_CLIENT_ID, CFG_MQTT_USERNAME,
                               CFG_MQTT_PASSWORD, CFG_MQTT_KEEPALIVE_S) != ESP8266_OK)

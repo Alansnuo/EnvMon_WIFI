@@ -7,7 +7,7 @@
  * 顺序阻塞: 每个接口内部"发一条命令 → 等应答 → 再发下一条", 等的时候调
  * BSP_DelayMs 让出 CPU, 返回前调用者不会往下走.
  *
- * 分区: 对外接口(初始化 / WiFi / MQTT) → 内部实现(接收 / 命令收发)
+ * 分区: 对外接口(初始化 / WiFi / 对时 / MQTT) → 内部实现(接收 / 命令收发)
  */
 
 /* --------------------------------- 头文件 --------------------------------- */
@@ -39,6 +39,7 @@ static void           ESP8266_ClearRxBuf(void);
 /* 命令收发 */
 static ESP8266_Status ESP8266_Exec(const char ack[], uint32_t timeoutMs);
 static ESP8266_Status ESP8266_SendCmd(const char cmd[], const char ack[], uint32_t timeoutMs);
+static ESP8266_Status ESP8266_SendRaw(const char data[]);
 
 /* ================================ 对外接口 ================================ */
 
@@ -188,6 +189,109 @@ ESP8266_Status ESP8266_MQTT_Publish(const char topic[], const char data[])
                    topic, data);
 
     st = ESP8266_Exec("OK", ESP8266_TIMEOUT);
+
+    return st;
+}
+
+/* ================================== 对时 ================================== */
+
+/* 时间服务器和请求路径: 响应体是 {"server_time":<Unix秒>} 一行 JSON */
+#define NETTIME_HOST             "api.pinduoduo.com"
+#define NETTIME_REQUEST          "GET http://api.pinduoduo.com/api/server/_stm\r\n"
+#define NETTIME_BEIJING_OFFSET_S 28800UL          /* 北京时间 = UTC + 8h */
+
+/**
+ * @brief  联网对一次时, 见 esp8266.h
+ */
+ESP8266_Status ESP8266_GetNetTime(uint8_t *hour, uint8_t *min, uint8_t *sec)
+{
+    ESP8266_Status st;
+    char         *p;
+    uint32_t      unixSec;
+    uint32_t      secOfDay;
+    uint32_t      tick;
+
+    if ((hour == NULL) || (min == NULL) || (sec == NULL))
+    {
+        return ESP8266_ERR_PARAM;
+    }
+
+    /* 连服务器 (HTTP 80). 这步没成, 后面的都不用走 */
+    (void)snprintf(s_Cmd, sizeof(s_Cmd),
+                   "AT+CIPSTART=\"TCP\",\"%s\",80\r\n", NETTIME_HOST);
+    st = ESP8266_Exec("CONNECT", ESP8266_TIMEOUT);
+    if (st != ESP8266_OK)
+    {
+        return st;
+    }
+
+    /* 进透传: 两条都 OK 之后, 发什么就是什么 */
+    st = ESP8266_SendCmd("AT+CIPMODE=1\r\n", "OK", ESP8266_TIMEOUT);
+    if (st != ESP8266_OK) { goto EXIT; }
+
+    st = ESP8266_SendCmd("AT+CIPSEND\r\n", ">", ESP8266_TIMEOUT);
+    if (st != ESP8266_OK) { goto EXIT; }
+
+    /* 发 GET, 轮询响应里的 "server_time" */
+    ESP8266_ClearRxBuf();
+    st = ESP8266_SendRaw(NETTIME_REQUEST);
+    if (st != ESP8266_OK) { goto EXIT; }
+
+    p    = NULL;
+    tick = HAL_GetTick();
+    for (;;)
+    {
+        ESP8266_RxDrain();
+
+        p = strstr((char *)s_RxBuf, "server_time");
+        if (p != NULL)
+        {
+            break;
+        }
+
+        if (s_RxLen >= ESP8266_RX_BUF_SIZE - 1U)
+        {
+            st = ESP8266_ERR_BUF_FULL;
+            goto EXIT;
+        }
+        if ((HAL_GetTick() - tick) > ESP8266_TIMEOUT)
+        {
+            st = ESP8266_ERR_TIMEOUT;
+            goto EXIT;
+        }
+        BSP_DelayMs(1);
+    }
+
+    /* "server_time":1750000000 —— 越过键名(11字符), 跳到第一个数字手动攒十进制 */
+    p += 11U;
+    while ((*p != '\0') && ((*p < '0') || (*p > '9')))
+    {
+        p++;
+    }
+    if (*p == '\0')
+    {
+        st = ESP8266_ERR_AT;
+        goto EXIT;
+    }
+
+    unixSec = 0U;
+    while ((*p >= '0') && (*p <= '9'))
+    {
+        unixSec = (unixSec * 10U) + (uint32_t)(*p - '0');
+        p++;
+    }
+
+    secOfDay = (unixSec + NETTIME_BEIJING_OFFSET_S) % 86400UL;
+    *hour = (uint8_t)(secOfDay / 3600U);
+    *min  = (uint8_t)((secOfDay % 3600U) / 60U);
+    *sec  = (uint8_t)(secOfDay % 60U);
+
+EXIT:
+    /* 退透传: +++ 前后各要 1 秒静默; 再关连接. 时间已到手, 这里的失败不回传 */
+    BSP_DelayMs(1000);
+    (void)ESP8266_SendRaw("+++");
+    BSP_DelayMs(1000);
+    (void)ESP8266_SendCmd("AT+CIPCLOSE\r\n", "OK", ESP8266_TIMEOUT);
 
     return st;
 }
@@ -350,4 +454,28 @@ static ESP8266_Status ESP8266_SendCmd(const char cmd[], const char ack[], uint32
     (void)strcpy(s_Cmd, cmd);
 
     return ESP8266_Exec(ack, timeoutMs);
+}
+
+/* 透传模式里发原始数据 (HTTP 请求 / +++ 退出序列), 发完就返回, 不等应答 */
+static ESP8266_Status ESP8266_SendRaw(const char data[])
+{
+    uint16_t len  = (uint16_t)strlen(data);
+    uint32_t tick = HAL_GetTick();
+
+    if (HAL_UART_Transmit_IT(&ESP8266_UART, (uint8_t *)data, len) != HAL_OK)
+    {
+        return ESP8266_ERR_AT;
+    }
+
+    while (ESP8266_UART.gState != HAL_UART_STATE_READY)
+    {
+        if ((HAL_GetTick() - tick) > ESP8266_TX_TIMEOUT)
+        {
+            (void)HAL_UART_AbortTransmit(&ESP8266_UART);
+            return ESP8266_ERR_TIMEOUT;
+        }
+        BSP_DelayMs(1);
+    }
+
+    return ESP8266_OK;
 }

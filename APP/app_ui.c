@@ -10,14 +10,9 @@
 
 /* ========================= 一、时钟 ========================= */
 
-static volatile Clock_Time s_Now;
-
-void AppClock_Init(uint8_t hour, uint8_t min)
-{
-    s_Now.hour = (uint8_t)(hour % 24U);
-    s_Now.min  = (uint8_t)(min  % 60U);
-    s_Now.sec  = 0U;
-}
+/* 软件时钟: 时间源头是 WiFi 任务联网对时 (AppClock_SetTime), 之后靠 OLED
+ * 任务的 1 秒节拍 (AppClock_Tick) 往前走。断电 / 重连都会被重新校准。 */
+static volatile Clock_Time s_Now = {0U, 0U, 0U};
 
 void AppClock_Tick(void)
 {
@@ -45,14 +40,12 @@ Clock_Time AppClock_Now(void)
     return t;
 }
 
-uint8_t AppClock_GetHour(void)
-{
-    return s_Now.hour;
-}
-
-void AppClock_SetHour(uint8_t hour)
+/* WiFi 任务拿到网络时间后调, 校准软件时钟 */
+void AppClock_SetTime(uint8_t hour, uint8_t min, uint8_t sec)
 {
     s_Now.hour = (uint8_t)(hour % 24U);
+    s_Now.min  = (uint8_t)(min  % 60U);
+    s_Now.sec  = (uint8_t)(sec % 60U);
 }
 
 /* ========================= 二、阈值 ========================= */
@@ -186,8 +179,4 @@ void UI_Init(void)
     g_xSetIdx    = 0U;
     g_xUiPage    = UI_PAGE_ENV;
     g_xAlarmCode = 0U;
-
-    /* 模拟时钟: 板上没有 RTC, 先从一个假起点开始走。
-     * 以后接上真时间, 换掉 AppClock_Now() 的实现就行, 界面代码不用动。 */
-    AppClock_Init(12U, 0U);
 }

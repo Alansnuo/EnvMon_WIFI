@@ -9,13 +9,13 @@
  *
  *   主页面 PAGE_ENV            菜单 PAGE_MENU           编辑 PAGE_EDIT
  *  ┌──────────────────┐      ┌──────────────────┐    ┌──────────────────┐
- *  │WiFi State        │      │Menu 1/7          │    │Set TempHi        │
+ *  │12:34:56          │      │Menu 1/7          │    │Set TempHi        │
  *  │Connecting        │      │>TempHi      30 C │    │温 30 C           │
- *  │                  │      │ TempLo      10 C │    │K2+ K3- K4=OK     │
- *  │                  │      │ HumHi       80 % │    │                  │
+ *  │                  │      │ HumHi       80 % │    │K2+ K3- K4=OK     │
+ *  │                  │      │                  │    │                  │
  *  └──────────────────┘      └──────────────────┘    └──────────────────┘
  *
- * 主页面只显示 WiFi 连接状态。
+ * 主页面第一行显示网络对时得到的时间, 第二行显示 WiFi 连接状态。
  *
  * 画法: **每行(每个数值字段)都用 snprintf 拼成定宽的一小段, 再补空格写整段**。
  *   ⚠️ 为什么不"写模板 + 再单独写数字": 模板往往盖不满该字段, 上一帧留在末尾的
@@ -25,7 +25,8 @@
  *
  * WiFi 状态只显示状态词, 不闪烁。
  *
- * 时钟仍在后台走字 (app_ui.c 的 AppClock_Tick), 但首页不再显示时间。
+ * 时间来自 WiFi 任务的网络对时 (见 task_wifi.c 的 ESP8266_GetNetTime 调用),
+ * 秒进位用本任务的 1 秒周期当秒脉冲 (AppClock_Tick)。
  * ========================================================================== */
 
 #include "task_oled.h"
@@ -95,13 +96,15 @@ void TaskOledCreate(void)
 
 /* ========================= 各页面 ========================= */
 
-/* --- 主页面: 温度 / 湿度 / 光照 / 时间 (必做2 要求的四项) --- */
+/* --- 主页面: 时间 + WiFi 连接状态 --- */
 static void DrawEnvPage(void)
 {
-    char    buf[OLED_COLS + 4U];
-    uint8_t wifi = g_xWifiState;
+    char       buf[OLED_COLS + 4U];
+    uint8_t    wifi = g_xWifiState;
+    Clock_Time t    = AppClock_Now();
 
-    (void)snprintf(buf, sizeof(buf), "WiFi State");
+    (void)snprintf(buf, sizeof(buf), "%02u:%02u:%02u",
+                   (unsigned)t.hour, (unsigned)t.min, (unsigned)t.sec);
     ShowPad(1U, 1U, buf, sizeof(buf), OLED_COLS);
 
     (void)snprintf(buf, sizeof(buf), "%s", WifiText(wifi));

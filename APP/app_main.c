@@ -64,7 +64,7 @@ void App_Init(void)
     Key_Init();
 
     /* 界面状态初始化: 阈值从 app_config.h 的宏拷进运行时变量 (之后按键改的就是
-     * 这份), 页面回主页面, 模拟时钟给个假起点。见 APP/app_ui.c */
+     * 这份), 页面回主页面。见 APP/app_ui.c */
     UI_Init();
 
     /* --- 2. 建 DHT11 → 通信的数据通道 --- */
