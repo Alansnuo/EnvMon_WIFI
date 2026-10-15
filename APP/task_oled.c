@@ -26,7 +26,8 @@
  * WiFi 状态只显示状态词, 不闪烁。
  *
  * 时间来自 WiFi 任务的网络对时 (见 task_wifi.c 的 ESP8266_GetNetTime 调用),
- * 秒进位用本任务的 1 秒周期当秒脉冲 (AppClock_Tick)。
+ * 秒进位按 FreeRTOS tick 的真实流逝累计 (AppClock_Tick), 不按循环次数算 ——
+ * 本循环实际周期 = 刷屏耗时 + 1000ms > 1s, 按次数算时钟会越走越慢。
  * ========================================================================== */
 
 #include "task_oled.h"
@@ -266,13 +267,22 @@ static void DrawEditPage(void)
 /* ========================= 任务本体 ========================= */
 static void TaskOled(void *argument)
 {
-    uint8_t lastPage = 0xFFU;
+    uint8_t    lastPage = 0xFFU;
+    TickType_t lastTick = xTaskGetTickCount();
 
     (void)argument;                     /* 未使用, 显式忽略 */
 
     for (;;)
     {
-        AppClock_Tick();                /* 本任务周期正好 1 秒, 当秒脉冲用 */
+        TickType_t now = xTaskGetTickCount();
+
+        /* 秒脉冲按真实 tick 累计: 真正每过 1000ms 才 +1 秒。
+         * 不能按循环次数每次 +1 —— 刷屏耗时会叠加进来, 时钟会越走越慢。 */
+        while ((now - lastTick) >= pdMS_TO_TICKS(1000))
+        {
+            AppClock_Tick();
+            lastTick += pdMS_TO_TICKS(1000);
+        }
 
         if (g_xUiPage != lastPage)      /* 只在切页时整屏擦一次, 避免每帧闪烁 */
         {
