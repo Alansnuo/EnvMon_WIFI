@@ -5,10 +5,7 @@
 #include "bsp_delay.h"
 #include "main.h"                       /* HAL_Delay */
 
-/* __weak 是 AC5 的编译器关键字, 不是 C 标准的东西.
- * ST 的 HAL 自己也是这么干的 —— 见 stm32f1xx_hal.c:371
- *     __weak void HAL_Delay(uint32_t Delay)
- * 链接器看到同名强定义时优先用强的, 既不报错也不警告. */
+/* __weak 是 AC5 关键字; 链接器遇同名强定义时优先用强定义, 不报错不警告. */
 __weak void BSP_DelayMs(uint32_t ms)
 {
     HAL_Delay(ms);
@@ -16,30 +13,9 @@ __weak void BSP_DelayMs(uint32_t ms)
 
 /* ============================================================================
  * BSP_DelayUs() —— 微秒忙等, 用 TIM2 自由运行计数器
- *
- * 为什么选 TIM2:
- *   TIM4 被 HAL 时基占用(Core/Src/stm32f1xx_hal_timebase_tim.c), 动不得;
- *   TIM3 留给软件 PWM、TIM1 留给硬件 PWM(见 06 篇第六节).
- *   TIM2 在本工程里没人用, 而且这里只读 CNT —— 不开中断、不配通道,
- *   所以 PA0~PA3 照样是普通 GPIO, 一个引脚都不占.
- *
- * 配置: 预分频到 1MHz, ARR = 0xFFFF, 不使能中断, 让 CNT 自己跑.
- *   1 个计数 = 1us, 所以延时值直接就是计数差, 不用再换算.
- *   16 位计数器每 65536us 回绕一次; 用无符号相减比较, 回绕安全.
- *
- * 和 CubeMX 的关系(重要):
- *   project.ioc 里 TIM2 也登记了, 所以 CubeMX 会生成 Core/Src/tim.c 的
- *   MX_TIM2_Init(). 上电后 TIM2 因此会被初始化两次:
- *       1) main() 里 MX_TIM2_Init()          —— 用 .ioc 里写死的 PSC=71
- *       2) 之后 DHT11_Init()/BH1750_Init() 触发这里的 BSP_DelayUsInit()
- *   第 2 次在后, 会覆盖第 1 次, **实际以这里为准**.
- *   两次的值一样(都是 71), 重复初始化没有副作用 —— HAL 只是照写一遍寄存器.
- *   这么设计是为了: 以后在 CubeMX 里改时钟树时, .ioc 里那个 71 会失准,
- *   而这里是从 HAL_RCC_GetClockConfig() 实测时钟重算的, 永远保持 1 计数 = 1us.
- *
- *   ⚠️ 用了 CubeMX 的 TIM2 就**不要**再在 NVIC 里勾 TIM2 global interrupt:
- *      本文件只用 HAL_TIM_Base_Start() 轮询, 从不置 UIE 位, 勾了也不会触发;
- *      而且 startup 里 TIM2_IRQHandler 是空的死循环弱定义, 一旦哪天真触发就是死机.
+ * 预分频 1MHz, ARR=0xFFFF, 不使能中断; 1 计数 = 1us, 只读 CNT 不占引脚.
+ * 16 位每 65536us 回绕, 无符号相减比较抗回绕.
+ * 上电后本文件初始化在 MX_TIM2_Init() 之后, 以本文件为准; 不要开 TIM2 中断.
  * ========================================================================== */
 
 #define BSP_US_TIM           TIM2
@@ -57,8 +33,7 @@ static void BSP_DelayUsInit(void)
 
     BSP_US_TIM_CLK_EN();
 
-    /* APB1 分频系数不是 1 时, 定时器时钟 = 2 x PCLK1
-     * (本工程 APB1 = HCLK/2 = 36MHz, 所以 TIM2 的计数时钟是 72MHz) */
+    /* APB1 分频非 1 时定时器时钟 = 2 x PCLK1 */
     HAL_RCC_GetClockConfig(&clk, &lat);
     timclk = (clk.APB1CLKDivider == RCC_HCLK_DIV1) ? HAL_RCC_GetPCLK1Freq()
                                                    : (2UL * HAL_RCC_GetPCLK1Freq());
@@ -84,8 +59,7 @@ static void BSP_DelayUsOnce(uint16_t us)
 
     while ((uint16_t)(BSP_US_TIM->CNT - start) < us)
     {
-        /* guard 是兜底: 万一计数器没跑起来, 宁可延时短一点,
-         * 也不要死在这儿 —— 那种死机在现场极难定位. */
+        /* guard 兜底: 计数器未启动时不死循环 */
         if (--guard == 0UL) { break; }
     }
 }
@@ -101,7 +75,7 @@ void BSP_DelayUs(uint32_t us)
     if (us == 0U) { return; }
 
     if (s_us_tim_ready == 0U) { BSP_DelayUsInit(); }
-    if (s_us_tim_ready == 0U) { return; }   /* 计数器没起来, 只能放弃这次延时 */
+    if (s_us_tim_ready == 0U) { return; }   /* 计数器未启动, 放弃本次延时 */
 
     /* 16 位计数器一次数不了那么久, 拆成几段 */
     while (us > BSP_US_TIM_MAX)

@@ -10,18 +10,16 @@
 #define DHT11_PIN_NUM   12      /* 必须和 DHT11_PIN 对应: 驱动用它算 CRL/CRH 里的位置 */
 
 typedef struct {
-    uint8_t humidity;           /* 相对湿度 %RH, 整数部分 */
-    uint8_t humidity_dec;       /* 相对湿度 %RH, 小数部分
-                                 * ⚠️ DHT11 恒为 0(规格书里是预留字节);
-                                 *    DHT22/AM2302 才有真实的 0.1 分辨率 */
-    uint8_t temperature;        /* 温度 ℃, 整数部分 */
-    uint8_t temperature_dec;    /* 温度 ℃, 小数部分 —— 同上, DHT11 恒为 0 */
+    uint8_t humidity;           /* 湿度 %RH 整数部分 */
+    uint8_t humidity_dec;       /* 湿度 %RH 小数部分 (DHT11 恒为 0) */
+    uint8_t temperature;        /* 温度 ℃ 整数部分 */
+    uint8_t temperature_dec;    /* 温度 ℃ 小数部分 (DHT11 恒为 0) */
 } DHT11_Data;
 
-/* 必须在 MX_GPIO_Init() 之后调用 (依赖 GPIOB 时钟) */
+/* 须在 MX_GPIO_Init() 之后调用 */
 uint8_t DHT11_Init(void);
 
-/* 读一次温湿度, 返回 1 表示成功且校验通过; 两次读取间隔需 >= 1s */
+/* 读一次温湿度, 成功返回 1; 间隔需 >= 1s */
 uint8_t DHT11_Read(DHT11_Data *data);
 
 #endif /* __DHT11_H */

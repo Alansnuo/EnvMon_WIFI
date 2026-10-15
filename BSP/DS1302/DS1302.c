@@ -1,17 +1,5 @@
-/* ============================================================================
- * DS1302 实时时钟驱动 —— STM32F1 + HAL
- *
- * ⚠️ 三线制, 不是 I2C: CE(RST) + SCLK + IO(双向数据) 三根线.
- *    LSB 先出; 命令/数据在 SCLK 上升沿被 DS1302 采样, 读回在下降沿由 DS1302 输出.
- *
- * 引脚(由 CubeMX 配好, 本文件不重配 CE/SCLK, 只按读写需要切 IO 方向):
- *    PA7 = CE/RST   (推挽输出)
- *    PB1 = SCLK     (推挽输出)
- *    PB0 = IO/DA    (双向: 写时输出, 读时输入)
- *
- * STM32 没有 8051 那种"写 1 即释放"的准双向口, 所以 IO 必须显式切方向:
- * 写的时候配成推挽输出去驱动, 读的时候配成输入(内部上拉)去采样.
- * ========================================================================== */
+/* DS1302 三线制 (CE/SCLK/IO), 非 I2C; LSB 先出, 上升沿写、下降沿读.
+ * 引脚 PA7=CE, PB1=SCLK, PB0=IO; 写 IO 输出, 读 IO 输入(上拉). */
 
 #include "DS1302.h"
 #include "bsp_delay.h"
@@ -59,14 +47,13 @@ static void DS1302_IoIn(void)
 //时间数组，索引0~6分别为年、月、日、时、分、秒、星期
 unsigned char DS1302_Time[]={26,10,15,12,0,0,4};
 
-/* 把 __DATE__ ("Oct 15 2026") / __TIME__ ("14:30:00") 解析进 DS1302_Time[]
- * 用编译时间作为上电默认时间, 比写死的固定值更接近真实时间. */
+/* 解析 __DATE__/__TIME__ 到 DS1302_Time[], 作上电默认时间 */
 static void DS1302_LoadCompileTime(void)
 {
 	const char *d = __DATE__;
 	const char *t = __TIME__;
 
-	/* 月份: 用首字母 + 第二字母快速区分, 避免大段 strcmp */
+	/* 月份: 首字母区分 */
 	if      (d[0]=='J' && d[1]=='a') DS1302_Time[1]=1;	/* Jan */
 	else if (d[0]=='F')              DS1302_Time[1]=2;	/* Feb */
 	else if (d[0]=='M' && d[2]=='r') DS1302_Time[1]=3;	/* Mar */
@@ -80,7 +67,7 @@ static void DS1302_LoadCompileTime(void)
 	else if (d[0]=='N')              DS1302_Time[1]=11;	/* Nov */
 	else                              DS1302_Time[1]=12;	/* Dec */
 
-	/* 日: __DATE__ 格式 "Mmm DD YYYY", 日为两位, 不足补空格 */
+	/* 日 (两位) */
 	DS1302_Time[2] = 0;
 	if (d[4] >= '0' && d[4] <= '9') DS1302_Time[2] += (unsigned char)((d[4]-'0')*10);
 	if (d[5] >= '0' && d[5] <= '9') DS1302_Time[2] += (unsigned char)(d[5]-'0');
@@ -93,34 +80,29 @@ static void DS1302_LoadCompileTime(void)
 	DS1302_Time[4] = (unsigned char)((t[3]-'0')*10 + (t[4]-'0'));
 	DS1302_Time[5] = (unsigned char)((t[6]-'0')*10 + (t[7]-'0'));
 
-	DS1302_Time[6] = 1;  /* 星期不参与显示, 随便给个有效值 */
+	DS1302_Time[6] = 1;  /* 星期不显示 */
 }
 
 /**
-  * @brief  DS1302初始化
-  * @param  无
-  * @retval 无
+  * @brief  DS1302 初始化
   */
 void DS1302_Init(void)
 {
-	/* 总线空闲: CE 拉低, SCLK 拉低, IO 置低 */
+	/* 总线空闲: CE/SCLK/IO 置低 */
 	DS1302_CE_L();
 	DS1302_SCLK_L();
 	DS1302_IoOut();
 	DS1302_IO_L();
 
-	/* 用编译时间填入 DS1302_Time[], 然后无条件写入 DS1302.
-	 * 这样做两件事: 1) 时间被对到编译时刻附近; 2) 秒寄存器写 0 会清掉 CH 位,
-	 *    强制启动振荡器 —— 解决"秒数不跳"的问题. */
+	/* 写入编译时间; 秒写 0 清 CH 位启动振荡器 */
 	DS1302_LoadCompileTime();
 	DS1302_SetTime();
 }
 
 /**
-  * @brief  DS1302写一个字节
-  * @param  Command 命令字/地址
-  * @param  Data 要写入的数据
-  * @retval 无
+  * @brief  DS1302 写一字节
+  * @param  Command 命令/地址
+  * @param  Data 写入数据
   */
 void DS1302_WriteByte(unsigned char Command, unsigned char Data)
 {
@@ -149,16 +131,16 @@ void DS1302_WriteByte(unsigned char Command, unsigned char Data)
 }
 
 /**
-  * @brief  DS1302读一个字节
-  * @param  Command 命令字/地址
-  * @retval 读出的数据
+  * @brief  DS1302 读一字节
+  * @param  Command 命令/地址
+  * @retval 读出数据
   */
 unsigned char DS1302_ReadByte(unsigned char Command)
 {
 	unsigned char i,Data=0x00;
-	Command|=0x01U;	//将指令转换为读指令
+	Command|=0x01U;	/* 转为读命令 */
 	DS1302_CE_H();
-	/* 先发命令 (IO 输出) */
+	/* 先发命令: IO 输出 */
 	DS1302_IoOut();
 	for(i=0;i<8;i++)
 	{
@@ -169,7 +151,7 @@ unsigned char DS1302_ReadByte(unsigned char Command)
 		DS1302_SCLK_L();
 		Command>>=1;
 	}
-	/* 再收数据 (IO 切输入). 下降沿后 DS1302 才输出该位 */
+	/* 再收数据: IO 切输入, 下降沿后输出该位 */
 	DS1302_IoIn();
 	for(i=0;i<8;i++)
 	{
@@ -186,14 +168,12 @@ unsigned char DS1302_ReadByte(unsigned char Command)
 }
 
 /**
-  * @brief  DS1302设置时间，调用之后，DS1302_Time数组的数字会被设置到DS1302中
-  * @param  无
-  * @retval 无
+  * @brief  把 DS1302_Time[] 写入 DS1302 (转 BCD)
   */
 void DS1302_SetTime(void)
 {
 	DS1302_WriteByte(DS1302_WP,0x00);
-	DS1302_WriteByte(DS1302_YEAR,DS1302_Time[0]/10*16+DS1302_Time[0]%10);//十进制转BCD码后写入
+	DS1302_WriteByte(DS1302_YEAR,DS1302_Time[0]/10*16+DS1302_Time[0]%10);/* 十进制转 BCD */
 	DS1302_WriteByte(DS1302_MONTH,DS1302_Time[1]/10*16+DS1302_Time[1]%10);
 	DS1302_WriteByte(DS1302_DATE,DS1302_Time[2]/10*16+DS1302_Time[2]%10);
 	DS1302_WriteByte(DS1302_HOUR,DS1302_Time[3]/10*16+DS1302_Time[3]%10);
@@ -204,15 +184,13 @@ void DS1302_SetTime(void)
 }
 
 /**
-  * @brief  DS1302读取时间，调用之后，DS1302中的数据会被读取到DS1302_Time数组中
-  * @param  无
-  * @retval 无
+  * @brief  读 DS1302 到 DS1302_Time[] (BCD→十进制)
   */
 void DS1302_ReadTime(void)
 {
 	unsigned char Temp;
 	Temp=DS1302_ReadByte(DS1302_YEAR);
-	DS1302_Time[0]=Temp/16*10+Temp%16;//BCD码转十进制后读取
+	DS1302_Time[0]=Temp/16*10+Temp%16;/* BCD 转十进制 */
 	Temp=DS1302_ReadByte(DS1302_MONTH);
 	DS1302_Time[1]=Temp/16*10+Temp%16;
 	Temp=DS1302_ReadByte(DS1302_DATE);

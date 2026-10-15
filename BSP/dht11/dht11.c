@@ -1,9 +1,6 @@
-/* ============================================================================
- * DHT11 单总线驱动 (STM32F1 + HAL)
- * 时序: 拉低>=18ms → 应答80us×2 → 40bit数据(高电平宽度判0/1)
- * 微秒时基直接用 BSP_GetUs()/BSP_DelayUs() (TIM2, 1 计数 = 1us),
- * 本文件不再自带时基, 也不另占定时器
- * ========================================================================== */
+/* DHT11 单总线驱动 (STM32F1 + HAL).
+ * 时序: 拉低>=18ms → 应答80us×2 → 40bit 数据(高电平宽度判 0/1).
+ * 微秒时基用 BSP_GetUs()/BSP_DelayUs() (TIM2), 本文件不另占定时器. */
 
 #include "dht11.h"
 #include "bsp_delay.h"
@@ -44,9 +41,7 @@ static void DHT11_PinInput(void)
     DHT11_SetConf(DHT11_CONF_IN_PU);
 }
 
-/* ========================= 等电平 / 测电平宽度 =========================
- * 统一用 BSP_GetUs() 读 TIM2 的 1us 计数器, 16 位回绕靠无符号相减兜住,
- * 本驱动最长只测 200us, 离 65536us 的回绕点很远. */
+/* ===== 等电平 / 测电平宽度 ===== 用 BSP_GetUs() 读 TIM2, 16 位回绕靠无符号相减兜住 */
 
 /* 等总线变成 level 电平, 超时返回 0 */
 static uint8_t DHT11_WaitLevel(uint8_t level, uint16_t timeout_us)
@@ -60,7 +55,7 @@ static uint8_t DHT11_WaitLevel(uint8_t level, uint16_t timeout_us)
     return 0;
 }
 
-/* 测量当前高电平持续了多少 us, 超过 timeout_us 就按 timeout_us 返回 */
+/* 测高电平持续 us, 超时按 timeout_us 返回 */
 static uint16_t DHT11_MeasureHighUs(uint16_t timeout_us)
 {
     uint16_t start = BSP_GetUs();
@@ -75,7 +70,7 @@ static uint16_t DHT11_MeasureHighUs(uint16_t timeout_us)
 /* ========================= 对外接口 ========================= */
 uint8_t DHT11_Init(void)
 {
-    /* 先读一次把 us 时基(TIM2)拉起来, 别等进了 __disable_irq() 的位流里才初始化 */
+    /* 先读一次拉起 us 时基, 避免在关中断位流里才初始化 */
     (void)BSP_GetUs();
 
     DHT11_PinOutput();
@@ -96,14 +91,12 @@ uint8_t DHT11_Read(DHT11_Data *data)
     /* --- 1. 起始信号: 拉低 20ms, 再释放 --- */
     DHT11_PinOutput();
     DHT11_LOW();
-    /* 这里用 BSP_DelayMs 而不是 HAL_Delay: 在任务里它会挂起本任务 20ms,
-     * 引脚电平由硬件保持, 这 20ms 别的任务照跑.
-     * 必须在 __disable_irq() 之外调用 —— 关着中断是没法阻塞的. */
+    /* 用 BSP_DelayMs: 任务里挂起 20ms 让出 CPU, 电平由硬件保持; 必须在关中断之外调用 */
     BSP_DelayMs(20);
-    DHT11_PinInput();                               /* 先切输入+上拉, 释放瞬间就有上拉顶着 */
+    DHT11_PinInput();                               /* 先切输入+上拉 */
     BSP_DelayUs(30);
 
-    /* --- 2. 从机应答: 80us 低 + 80us 高, 整段位流约 4ms 不能被打断 --- */
+    /* --- 2. 从机应答 (整段位流约 4ms 不可打断) --- */
     __disable_irq();
 
     if (!DHT11_WaitLevel(0, DHT11_TIMEOUT_RESP)) { goto exit; }  /* 等 80us 低 */
@@ -126,17 +119,12 @@ exit:
     DHT11_HIGH();                                   /* 释放总线, 回到空闲 */
 
     if (ok && (buf[4] == (uint8_t)(buf[0] + buf[1] + buf[2] + buf[3]))) {
-        /* DHT11 规格书: 湿度 20~90%RH, 温度 0~50℃.
-         * 通信受干扰时可能读到全 0 或错位数据, 校验和碰巧对上 (0+0+0+0=0).
-         * 湿度 0 或温度 >50 一定是脏数据, 丢弃, 不更新上层. */
+        /* 湿度 0 或温度 >50 判为脏数据 (受干扰时可能全 0 且校验和碰巧对上), 丢弃 */
         if (buf[0] == 0U || buf[2] > 50U) { return 0; }
 
         data->humidity        = buf[0];
         data->temperature     = buf[2];
-        /* buf[1]/buf[3] 是小数位。
-         * ⚠️ DHT11 规格书里这两字节**恒为 0** —— 只有 DHT22/AM2302 才有真的 0.1 分辨率。
-         *    有些 DHT11 兼容品会在这里塞垃圾, 所以夹到 0~9(屏上只显示一位小数),
-         *    免得显示成 ".37" 这种不像话的东西。 */
+        /* 小数位: DHT11 恒为 0, 兼容品可能塞垃圾, 夹到 0~9 避免显示异常 */
         data->humidity_dec    = (buf[1] > 9U) ? 0U : buf[1];
         data->temperature_dec = (buf[3] > 9U) ? 0U : buf[3];
         return 1;

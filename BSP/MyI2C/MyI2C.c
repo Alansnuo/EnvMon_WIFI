@@ -1,11 +1,6 @@
-/* ============================================================================
- * 通用软件 I2C 总线驱动 —— STM32F1 + HAL
- *
- * 从 BH1750 驱动里抽出的 Start/Stop/SendByte/RecvByte 原语.
- * 时序: 起始/停止由"SCL 为高时 SDA 跳变"定义, 不是靠电平高低.
- * 两个 IO 都配开漏: 写 1 = 放开总线, 写 0 = 拉低.
- * 引脚 PB6/PB7 由 CubeMX 配好(开漏输出), 本文件不再重配 GPIO.
- * ========================================================================== */
+/* 通用软件 I2C 总线 (STM32F1 + HAL).
+ * 起始/停止由 SCL 为高时 SDA 跳变定义; 两个 IO 开漏: 写 1 放开总线, 写 0 拉低.
+ * 引脚 PB6/PB7 由 CubeMX 配置(开漏, 初始高), 本文件不再重配. */
 
 #include "MyI2C.h"
 #include "bsp_delay.h"
@@ -18,7 +13,9 @@
 #define SDA_L()   HAL_GPIO_WritePin(MYI2C_SDA_PORT, MYI2C_SDA_PIN, GPIO_PIN_RESET)
 #define SDA_IN()  ((MYI2C_SDA_PORT->IDR & MYI2C_SDA_PIN) ? 1U : 0U)
 
-/* 起始: SCL 高时 SDA 下降沿 */
+/**
+  * @brief  产生 I2C 起始条件 (SCL 高时 SDA 下降沿)
+  */
 void MyI2C_Start(void)
 {
     SDA_H();
@@ -32,7 +29,9 @@ void MyI2C_Start(void)
     BSP_DelayUs(MYI2C_HALF_US);
 }
 
-/* 停止: SCL 高时 SDA 上升沿 */
+/**
+  * @brief  产生 I2C 停止条件 (SCL 高时 SDA 上升沿)
+  */
 void MyI2C_Stop(void)
 {
     SDA_L();
@@ -45,7 +44,11 @@ void MyI2C_Stop(void)
     BSP_DelayUs(MYI2C_HALF_US);
 }
 
-/* 发一字节. 返回从机应答: 0 = ACK, 1 = NACK */
+/**
+  * @brief  发送一字节
+  * @param  dat 要发送的字节
+  * @retval 0 = ACK, 1 = NACK
+  */
 uint8_t MyI2C_SendByte(uint8_t dat)
 {
     uint8_t i;
@@ -61,7 +64,7 @@ uint8_t MyI2C_SendByte(uint8_t dat)
         SCL_L();
     }
 
-    /* 第 9 个时钟: 放开 SDA, 从机拉低表示应答 */
+    /* 第 9 个时钟: 放开 SDA, 从机拉低应答 */
     SDA_H();
     BSP_DelayUs(MYI2C_HALF_US);
     SCL_H();
@@ -73,7 +76,11 @@ uint8_t MyI2C_SendByte(uint8_t dat)
     return ack;
 }
 
-/* 收一字节. sendAck: 1 = 主机应答, 0 = 非应答(末字节) */
+/**
+  * @brief  接收一字节
+  * @param  sendAck 1 = 主机应答, 0 = 非应答(末字节)
+  * @retval 收到的字节
+  */
 uint8_t MyI2C_RecvByte(uint8_t sendAck)
 {
     uint8_t i;
