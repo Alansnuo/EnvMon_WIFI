@@ -165,7 +165,7 @@ static void TaskAsr(void *argument)
             }
         }
 
-        /* ---------- 5. 告警 LED (PA6, 另一端接 3.3V) ----------
+        /* ---------- 5. 告警 LED (PB5, 另一端接 3.3V) ----------
          * 正常: PA6=HIGH 灭; 超限: 每 500ms 翻转 → 1Hz 闪烁 */
         tick_led++;
         if (g_xAlarmCode != 0U)
@@ -173,7 +173,7 @@ static void TaskAsr(void *argument)
             if (tick_led >= (500U / APP_ASR_PERIOD_MS))    /* 500ms 翻一次 */
             {
                 tick_led = 0U;
-                HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_6);
+                HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_5);
             }
         }
         else
