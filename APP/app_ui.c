@@ -1,8 +1,6 @@
 /* ============================================================================
  * 界面状态实现 —— 时钟 + 阈值 + 菜单 + 页面
- *
- * 定义见 app_ui.h。本文件只做纯数据操作, 不碰任何外设, 不调 vTaskDelay,
- * 所以调度器起来前后调用都安全 (UI_Init() 就是在 App_Init() 里调的)。
+ * 纯数据操作, 不碰外设不延时, 调度器前后调用都安全。
  * ========================================================================== */
 
 #include "app_ui.h"
@@ -10,8 +8,7 @@
 
 /* ========================= 一、时钟 ========================= */
 
-/* 软件时钟: 时间源头是 WiFi 任务联网对时 (AppClock_SetTime), 之后靠 OLED
- * 任务的 1 秒节拍 (AppClock_Tick) 往前走。断电 / 重连都会被重新校准。 */
+/* 软件时钟: WiFi 任务联网对时校准 (SetTime), OLED 任务按 tick 节拍推进 (Tick) */
 static volatile Clock_Time s_Now = {0U, 0U, 0U};
 
 void AppClock_Tick(void)
@@ -52,7 +49,7 @@ void AppClock_SetTime(uint8_t hour, uint8_t min, uint8_t sec)
 
 volatile int16_t g_xThresh[TH_COUNT];
 
-/* 每一项的取值范围和步进。光照用 10 lx 一档, 不然从 0 按到 600 得按 600 下 */
+/* 每一项的取值范围和步进 */
 typedef struct {
     int16_t min;
     int16_t max;

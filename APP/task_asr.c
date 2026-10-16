@@ -1,16 +1,12 @@
 /* ============================================================================
  * 语音任务 —— 四件事
- *   1) 应答: 模块发 "TEMP"/"HUMI"/"LUX" → 回一个数值(动作码 2)
- *   2) 定时播报 (必做3 的"定时"): 每 APP_ASR_REPORT_PERIOD_MS 主动让模块播报
- *      "当前温度X摄氏度，湿度百分之Y，光线…"
- *   3) 按键触发播报 (必做3 的"按按键触发"): 环境页按 KEY2 → 立刻播一次
- *   4) 阈值告警 (必做4): 每秒查一次, **只在告警状态变化时**播报, 免得反复念
+ *   1) 应答: 模块发 "TEMP"/"HUMI"/"LUX" → 回数值
+ *   2) 定时播报: 每 APP_ASR_REPORT_PERIOD_MS 主动播一次环境数据
+ *   3) 按键触发: 环境页按 KEY2 立刻播一次
+ *   4) 阈值告警: 每秒查一次, 只在状态变化时播报; 告警码写 g_xAlarmCode 供 OLED
  *
- * 阈值不再读 app_config.h 的宏, 改读 APP/app_ui.c 的运行时变量 ——
- * 按键设置的就是那份, 改完立刻生效。
- * 每秒算出的告警码会写进 g_xAlarmCode, 给 OLED 做闪烁提示用(只算一处)。
- *
- * 帧解析/收行在 BSP/ASR/asr.c, 本文件只管"什么时候发什么"。
+ * 阈值读 app_ui.c 运行时变量 (按键改的那份), 不读 app_config.h 宏。
+ * 帧解析在 BSP/ASR/asr.c, 本文件只管"什么时候发什么"。
  * ========================================================================== */
 
 #include "task_asr.h"
@@ -35,8 +31,7 @@ static uint8_t Asr_CheckAlarm(void)
 {
     int temp, humi, lux;
 
-    /* 共享数据拷一份再判断, 和 OLED 任务一致用临界区。
-     * 温度/湿度全 0 = DHT11 从没成功过, 不参与告警判断。 */
+    /* 拷一份共享数据再判断; 温湿度全 0 = DHT11 从未成功, 不参与告警 */
     taskENTER_CRITICAL();
     temp = (int)g_xLatestDht11.temperature;
     humi = (int)g_xLatestDht11.humidity;
@@ -50,7 +45,7 @@ static uint8_t Asr_CheckAlarm(void)
         if (humi > (int)Thresh_Get(TH_HUMI_UP)) { return ASR_ALARM_HUMI_HI; }
         if (humi < (int)Thresh_Get(TH_HUMI_DN)) { return ASR_ALARM_HUMI_LO; }
     }
-    /* 光照不套这个判断: BH1750 一直好使, 而且 0 lx 是合法读数(全黑) */
+    /* 光照不套此判断: 0 lx 是合法读数 (全黑) */
     if (lux < (int)Thresh_Get(TH_LUX_DN)) { return ASR_ALARM_LUX_LO; }
     if (lux > (int)Thresh_Get(TH_LUX_UP)) { return ASR_ALARM_LUX_HI; }
 
@@ -80,7 +75,7 @@ static void Asr_Answer(const char *req)
     {
         Asr_SendNum(lux);
     }
-    /* 别的字符串一律忽略 —— 防线上杂波 / 模块的其它输出被当成数据请求 */
+    /* 其它字符串一律忽略 (防杂波误触发) */
 }
 
 /* ========================= 建任务 ========================= */
@@ -109,7 +104,7 @@ static void TaskAsr(void *argument)
         /* ---------- 1. 应答模块的数据请求 ---------- */
         if (Asr_LineReady != 0U)
         {
-            /* 先把内容拷出来, 再清标志 —— 顺序反了会和中断抢缓冲 */
+            /* 先拷内容再清标志, 顺序反了会和中断抢缓冲 */
             (void)strncpy(line, (const char *)Asr_Line, ASR_LINE_MAX);
             line[ASR_LINE_MAX - 1U] = '\0';
             Asr_LineLen   = 0U;
@@ -118,7 +113,7 @@ static void TaskAsr(void *argument)
             Asr_Answer(line);
         }
 
-        /* ---------- 2. 按键触发的播报 (必做3 的"按按键触发") ---------- */
+        /* ---------- 2. 按键触发的播报 ---------- */
         if (g_xAsrSpeakReq != 0U)
         {
             int temp, humi, lux;
@@ -132,11 +127,11 @@ static void TaskAsr(void *argument)
             light = Asr_LightLevel(lux);
 
             g_xAsrSpeakReq = 0U;
-            tick_report    = 0U;        /* 顺手清掉定时计数, 免得刚播完定时又播一次 */
+            tick_report    = 0U;        /* 清定时计数, 免得刚播完又播 */
             Asr_SendEnv(temp, humi, light);
         }
 
-        /* ---------- 3. 定时播报 (必做3 的"定时") ---------- */
+        /* ---------- 3. 定时播报 ---------- */
         tick_report++;
         if (tick_report >= (APP_ASR_REPORT_PERIOD_MS / APP_ASR_PERIOD_MS))
         {
@@ -154,14 +149,14 @@ static void TaskAsr(void *argument)
             Asr_SendEnv(temp, humi, light);
         }
 
-        /* ---------- 4. 阈值告警 (必做4) ---------- */
+        /* ---------- 4. 阈值告警 ---------- */
         tick_alarm++;
         if (tick_alarm >= (1000U / APP_ASR_PERIOD_MS))
         {
             uint8_t code = Asr_CheckAlarm();
 
             tick_alarm   = 0U;
-            g_xAlarmCode = code;        /* 给 OLED 做闪烁提示 —— 只在这一处算 */
+            g_xAlarmCode = code;        /* 供 OLED 闪烁提示, 只在此算 */
 
             if (code != last_alarm)     /* 只在状态变化时播报 */
             {
@@ -171,8 +166,7 @@ static void TaskAsr(void *argument)
         }
 
         /* ---------- 5. 告警 LED (PA6, 另一端接 3.3V) ----------
-         * 正常: PA6=HIGH → 两端都是 3.3V → LED 灭
-         * 超限: 每 500ms 翻转一次 → 1Hz 闪烁, 直到恢复正常自动熄灭 */
+         * 正常: PA6=HIGH 灭; 超限: 每 500ms 翻转 → 1Hz 闪烁 */
         tick_led++;
         if (g_xAlarmCode != 0U)
         {
@@ -188,7 +182,7 @@ static void TaskAsr(void *argument)
             HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_SET);  /* 灭 */
         }
 
-        /* ⚠️ APP_ASR_PERIOD_MS 绝不能设成 0: vTaskDelay(0) 不延时, 任务会忙等吃光 CPU */
+        /* ⚠️ APP_ASR_PERIOD_MS 不能为 0, 否则忙等吃光 CPU */
         vTaskDelay(pdMS_TO_TICKS(APP_ASR_PERIOD_MS));
     }
 }

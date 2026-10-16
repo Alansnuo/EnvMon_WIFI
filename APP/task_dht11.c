@@ -31,19 +31,13 @@ static void TaskDht11(void *argument)
     {
         if (DHT11_Read(&dht))
         {
-            /* 同时更新共享最新值给 OLED 显示. 两个 uint8_t 字段, 直接写:
-             * DHT11_Data 没位域, 写时不会被任务切换打断成"半新半旧".
-             * (OLED 那边进临界区再拷, 是为了一致性, 也为了volatile读不被合并.) */
-            g_xLatestDht11 = dht;
+            g_xLatestDht11 = dht;               /* 共享最新值给 OLED 显示 */
 
-            /* 投给通信任务. 超时给 0: 队列满了就丢掉本次数据, 绝不在这里等 ——
-             * 采集任务是生产者, 被消费者拖住就本末倒置了. */
+            /* 投给通信任务; 队列满就丢, 生产者不被消费者拖住 */
             (void)xQueueSend(g_xDht11Queue, &dht, 0);
         }
 
-        /* 必须 vTaskDelay 而不是 HAL_Delay:
-         *   vTaskDelay 会把本任务挂起, CPU 让给别人;
-         *   HAL_Delay  是忙等, 这 2 秒里别的任务全被饿死. */
+        /* vTaskDelay 挂起让出 CPU; 禁用 HAL_Delay 忙等 */
         vTaskDelay(pdMS_TO_TICKS(APP_DHT11_PERIOD_MS));
     }
 }

@@ -1,6 +1,5 @@
 /* ============================================================================
- * 光照采集任务: 每 2 秒读一次 BH1750, 更新共享最新值 (给 OLED / 语音任务用)
- * 一个数据源一个任务文件, 不要往这里塞第二个传感器
+ * 光照采集任务: 每 2 秒读一次 BH1750 更新共享值, 并驱动 PA8 调光灯联动
  * ========================================================================== */
 
 #include "task_light.h"
@@ -12,8 +11,7 @@
 
 static void TaskLight(void *argument);
 
-/* 亮度平滑过渡: 把 2 秒一次的"突变"拆成每 20ms 一档的渐变,
- * 一整周期走完 (100 档), 视觉上连续不跳变 */
+/* 亮度平滑过渡: 2 秒周期内分 100 档渐变, 每 20ms 一档, 避免跳变 */
 #define LIGHT_FADE_STEP_MS   20U
 #define LIGHT_FADE_STEPS     (APP_LIGHT_PERIOD_MS / LIGHT_FADE_STEP_MS)
 
@@ -60,13 +58,13 @@ static void TaskLight(void *argument)
         int32_t  diff;
         uint32_t i;
 
-        /* 读一次照度, 更新共享值 (读失败就沿用上次的 g_xLatestLux) */
+        /* 读照度更新共享值 (失败沿用上次值) */
         if (BH1750_ReadLuxChecked(&lux))
         {
             g_xLatestLux = lux;
         }
 
-        /* 光控联动: 算出目标亮度, 再分步把当前亮度平滑逼近目标 */
+        /* 光控联动: 目标亮度分步平滑逼近 */
         start  = bright;
         target = Light_ToBright(g_xLatestLux);
         diff   = (int32_t)target - (int32_t)start;
@@ -75,7 +73,7 @@ static void TaskLight(void *argument)
         {
             bright = (uint16_t)((int32_t)start + diff * (int32_t)i / (int32_t)LIGHT_FADE_STEPS);
             PWM_SetBright(bright);
-            /* 每 20ms 让出一次 CPU, 2 秒里不忙等, 不会饿死 WiFi / DHT11 */
+            /* 每 20ms 让出 CPU, 不忙等 */
             vTaskDelay(pdMS_TO_TICKS(LIGHT_FADE_STEP_MS));
         }
     }

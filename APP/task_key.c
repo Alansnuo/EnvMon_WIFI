@@ -11,11 +11,8 @@
  *   KEY3  菜单里往下选一项; 编辑里 -1 (阈值减)
  *   KEY4  确认: 菜单 -> 进编辑该项; 编辑 -> 回菜单
  *
- * 按键怎么读、怎么消抖在 BSP/KEY/key.c; 本文件只认 KEY_EVENT_PRESS
- * (按下那一刻报一次, 按住不放不会重复报)。
- *
- * 本任务只改共享变量, 不碰 OLED / 不碰语音 —— 那两个任务各自去读。
- * 单向数据流, 所以不需要加锁。
+ * 消抖在 BSP/KEY/key.c; 本文件只认 KEY_EVENT_PRESS (按下报一次)。
+ * 只改共享变量, 不碰 OLED / 语音 —— 单向数据流, 无需加锁。
  * ========================================================================== */
 
 #include "task_key.h"
@@ -130,9 +127,7 @@ static void Key4_Action(Key_Event ev)
     }
     else if (g_xUiPage == UI_PAGE_EDIT)
     {
-        g_xUiPage = UI_PAGE_MENU;       /* 改完了回设置面。
-                                         * 阈值本来就在 RAM 变量里, 没什么可"写"的;
-                                         * 以后要断电保存, 在这里落一次 Flash 即可 */
+        g_xUiPage = UI_PAGE_MENU;       /* 改完回设置面 (阈值就在 RAM 变量里) */
     }
     /* 显示页: KEY4 无动作 */
 }
