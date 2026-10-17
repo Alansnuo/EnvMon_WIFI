@@ -4,11 +4,11 @@
 #include "main.h"
 #include <stdint.h>
 
-/* 4 个独立按键 —— 扫描式读取, 不用中断.
- * 全部内部上拉: 松手=高, 按下=低 (不用外接电阻).
+/* 4 个独立按键: 扫描式读取, 不用中断.
+ * 全部内部上拉: 松手=高, 按下=低, 无需外接电阻.
  * FreeRTOS 下不能阻塞等松手: 消抖确认按下即返回, 松手前不重复报.
  * 扫描周期即消抖时间 (KEY_SCAN_MS, 一次抖动通常 <10ms).
- * 引脚避开 SWD/JTAG/串口/软件I2C/DHT11/蜂鸣器; 换脚只改下面 4 行 + KEY_PORT. */
+ * 引脚已避开 SWD/JTAG/串口/软件 I2C/DHT11/蜂鸣器; 换脚只改下面 4 行 + KEY_PORT. */
 #define KEY_PORT        GPIOA
 #define KEY1_PIN        GPIO_PIN_0      /* 切页 */
 #define KEY2_PIN        GPIO_PIN_1      /* 上移 / 加 / 播报 */

@@ -6,9 +6,7 @@
 #include "pwm.h"
 #include "tim.h"
 
-/**
- * @brief 启动 PWM 输出并先置灭.
- */
+/* 启动 PWM 输出并先置灭 */
 void PWM_Init(void)
 {
     HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);

@@ -1,12 +1,12 @@
 /* ============================================================================
- * 语音任务 —— 四件事
+ * 语音任务: 四类动作
  *   1) 应答: 模块发 "TEMP"/"HUMI"/"LUX" → 回数值
- *   2) 定时播报: 每 APP_ASR_REPORT_PERIOD_MS 主动播一次环境数据
- *   3) 按键触发: 环境页按 KEY2 立刻播一次
- *   4) 阈值告警: 每秒查一次, 只在状态变化时播报; 告警码写 g_xAlarmCode 供 OLED
+ *   2) 定时播报: 每 APP_ASR_REPORT_PERIOD_MS 播报一次环境数据
+ *   3) 按键触发: 环境页按 KEY2 立即播报一次
+ *   4) 阈值告警: 每秒检查一次, 状态变化时播报; 告警码写 g_xAlarmCode 供 OLED
  *
- * 阈值读 app_ui.c 运行时变量 (按键改的那份), 不读 app_config.h 宏。
- * 帧解析在 BSP/ASR/asr.c, 本文件只管"什么时候发什么"。
+ * 阈值读 app_ui.c 的运行时变量 (按键修改的那份), 不读 app_config.h 宏.
+ * 帧解析在 BSP/ASR/asr.c, 本文件只负责发送时机与内容.
  * ========================================================================== */
 
 #include "task_asr.h"
@@ -18,7 +18,7 @@
 
 static void TaskAsr(void *argument);
 
-/* 光线分档: 0 = 过暗, 1 = 适宜, 2 = 过强。模块按这个等级决定播报哪一句 */
+/* 光线分档: 0=过暗 1=适宜 2=过强, 模块按等级决定播报内容 */
 static uint8_t Asr_LightLevel(int lux)
 {
     if (lux < (int)Thresh_Get(TH_LUX_DN)) { return ASR_LIGHT_DARK;   }
@@ -26,12 +26,12 @@ static uint8_t Asr_LightLevel(int lux)
     return ASR_LIGHT_OK;
 }
 
-/* 阈值检查: 返回告警码, 0 = 一切正常 */
+/* 阈值检查: 返回告警码, 0 = 正常 */
 static uint8_t Asr_CheckAlarm(void)
 {
     int temp, humi, lux;
 
-    /* 拷一份共享数据再判断; 温湿度全 0 = DHT11 从未成功, 不参与告警 */
+    /* 先拷共享数据再判断; 温湿度全 0 = DHT11 从未成功, 不参与告警 */
     taskENTER_CRITICAL();
     temp = (int)g_xLatestDht11.temperature;
     humi = (int)g_xLatestDht11.humidity;
@@ -45,14 +45,14 @@ static uint8_t Asr_CheckAlarm(void)
         if (humi > (int)Thresh_Get(TH_HUMI_UP)) { return ASR_ALARM_HUMI_HI; }
         if (humi < (int)Thresh_Get(TH_HUMI_DN)) { return ASR_ALARM_HUMI_LO; }
     }
-    /* 光照不套此判断: 0 lx 是合法读数 (全黑) */
+    /* 光照不套用该判断: 0 lx 是合法读数 (全黑) */
     if (lux < (int)Thresh_Get(TH_LUX_DN)) { return ASR_ALARM_LUX_LO; }
     if (lux > (int)Thresh_Get(TH_LUX_UP)) { return ASR_ALARM_LUX_HI; }
 
     return 0U;
 }
 
-/* 模块问某一项数据 → 回一个数值 */
+/* 模块请求某项数据 → 回一个数值 */
 static void Asr_Answer(const char *req)
 {
     int temp, humi, lux;
@@ -75,7 +75,7 @@ static void Asr_Answer(const char *req)
     {
         Asr_SendNum(lux);
     }
-    /* 其它字符串一律忽略 (防杂波误触发) */
+    /* 其它字符串忽略, 防杂波误触发 */
 }
 
 /* ========================= 建任务 ========================= */
@@ -104,7 +104,7 @@ static void TaskAsr(void *argument)
         /* ---------- 1. 应答模块的数据请求 ---------- */
         if (Asr_LineReady != 0U)
         {
-            /* 先拷内容再清标志, 顺序反了会和中断抢缓冲 */
+            /* 先拷内容再清标志, 顺序颠倒会与中断冲突 */
             (void)strncpy(line, (const char *)Asr_Line, ASR_LINE_MAX);
             line[ASR_LINE_MAX - 1U] = '\0';
             Asr_LineLen   = 0U;
@@ -127,7 +127,7 @@ static void TaskAsr(void *argument)
             light = Asr_LightLevel(lux);
 
             g_xAsrSpeakReq = 0U;
-            tick_report    = 0U;        /* 清定时计数, 免得刚播完又播 */
+            tick_report    = 0U;        /* 清定时计数, 避免紧接着重复播报 */
             Asr_SendEnv(temp, humi, light);
         }
 
@@ -156,7 +156,7 @@ static void TaskAsr(void *argument)
             uint8_t code = Asr_CheckAlarm();
 
             tick_alarm   = 0U;
-            g_xAlarmCode = code;        /* 供 OLED 闪烁提示, 只在此算 */
+            g_xAlarmCode = code;        /* 供 OLED 闪烁提示, 仅在此处计算 */
 
             if (code != last_alarm)     /* 只在状态变化时播报 */
             {
@@ -166,7 +166,7 @@ static void TaskAsr(void *argument)
         }
 
         /* ---------- 5. 告警 LED (PB5, 另一端接 3.3V) ----------
-         * 正常: PA6=HIGH 灭; 超限: 每 500ms 翻转 → 1Hz 闪烁 */
+         * 正常: 停止翻转; 超限: 每 500ms 翻转一次 → 1Hz 闪烁 */
         tick_led++;
         if (g_xAlarmCode != 0U)
         {
@@ -182,7 +182,7 @@ static void TaskAsr(void *argument)
             HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_SET);  /* 灭 */
         }
 
-        /* ⚠️ APP_ASR_PERIOD_MS 不能为 0, 否则忙等吃光 CPU */
+        /* APP_ASR_PERIOD_MS 不可为 0, 否则忙等占满 CPU */
         vTaskDelay(pdMS_TO_TICKS(APP_ASR_PERIOD_MS));
     }
 }

@@ -1,20 +1,12 @@
 /* ============================================================================
- * OLED 显示任务 —— 全工程唯一碰屏的任务 (单写者, 无需互斥锁)
+ * OLED 显示任务: 全工程唯一访问屏的任务 (单写者, 无需互斥锁)
  *
- * 页面 (KEY1 依次循环):
+ * 页面 (页面号见 app_ui.h): 首页(时钟 + WiFi 状态) / 温度 / 湿度 / 光照 /
+ * 设置面 / 菜单 / 编辑, 由按键任务切页, 本任务按页绘制.
  *
- *   主页面 PAGE_ENV            菜单 PAGE_MENU           编辑 PAGE_EDIT
- *  ┌──────────────────┐      ┌──────────────────┐    ┌──────────────────┐
- *  │12:34:56          │      │Menu 1/7          │    │Set TempHi        │
- *  │Connecting        │      │>TempHi      30 C │    │温 30 C           │
- *  │                  │      │ HumHi       80 % │    │                  │
- *  │                  │      │                  │    │ K2+  K3-  K4=OK  │
- *  └──────────────────┘      └──────────────────┘    └──────────────────┘
- *
- * 主页面: 第一行网络时间, 第二行 WiFi 状态词。
- * 画法: 每个字段 snprintf 拼成定宽段, 补空格整段写, 覆盖上一帧残字。
- * 时间: WiFi 任务网络对时校准; 秒进位按 FreeRTOS tick 真实流逝累计
- * (循环周期 = 刷屏耗时 + 1s > 1s, 按循环次数算会越走越慢)。
+ * 画法: 每个字段 snprintf 拼成定宽段, 补空格后整段写出, 覆盖上一帧残字.
+ * 时间: WiFi 任务对时校准; 秒进位按 tick 累计 (循环周期 = 刷屏耗时 + 1s > 1s,
+ * 按循环次数计会越走越慢).
  * ========================================================================== */
 
 #include "task_oled.h"
@@ -32,7 +24,7 @@
 
 static void TaskOled(void *argument);
 
-/* WiFi 状态 → 屏上那几个字的短词 */
+/* WiFi 状态 → 屏上显示词 */
 static const char *WifiText(uint8_t state)
 {
     switch (state)
@@ -44,8 +36,8 @@ static const char *WifiText(uint8_t state)
     }
 }
 
-/* 把一段 ASCII 补齐到 width 列再写, 覆盖上一帧残字。
- * buf 必须可写; size 传 sizeof(buf), 按 size 夹住写入位置防写飞。 */
+/* 将 ASCII 串补齐到 width 列后写出, 覆盖上一帧残字.
+ * buf 须可写; size 传 sizeof(buf), 写入位置按 size 夹紧. */
 static void ShowPad(uint8_t line, uint8_t col, char *buf, uint32_t size, uint8_t width)
 {
     uint8_t n = (uint8_t)strlen(buf);
@@ -191,7 +183,7 @@ static void DrawMenuPage(void)
 
     if (idx >= MENU_COUNT) { idx = 0U; }
 
-    /* 让选中项尽量落在第 2 行, 同时不让列表滚出边界 */
+    /* 选中项尽量落在第 2 行, 且列表不滚出边界 */
     top = (idx > 0U) ? (uint8_t)(idx - 1U) : 0U;
     if (top > (uint8_t)(MENU_COUNT - MENU_ROWS)) { top = (uint8_t)(MENU_COUNT - MENU_ROWS); }
 
@@ -258,7 +250,7 @@ static void TaskOled(void *argument)
     {
         TickType_t now = xTaskGetTickCount();
 
-        /* 秒脉冲按真实 tick 累计: 真正每过 1000ms 才 +1 秒 (按循环次数会越走越慢) */
+        /* 秒脉冲按 tick 累计: 每满 1000ms 加 1 秒 (按循环次数计会越走越慢) */
         while ((now - lastTick) >= pdMS_TO_TICKS(1000))
         {
             AppClock_Tick();

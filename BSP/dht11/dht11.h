@@ -7,7 +7,7 @@
 /* 数据引脚: 接带 4.7k~10k 上拉电阻的 DHT11 模块 */
 #define DHT11_PORT      GPIOB
 #define DHT11_PIN       GPIO_PIN_12
-#define DHT11_PIN_NUM   12      /* 必须和 DHT11_PIN 对应: 驱动用它算 CRL/CRH 里的位置 */
+#define DHT11_PIN_NUM   12      /* 须与 DHT11_PIN 对应: 驱动用它算 CRL/CRH 中的位置 */
 
 typedef struct {
     uint8_t humidity;           /* 湿度 %RH 整数部分 */
@@ -16,7 +16,6 @@ typedef struct {
     uint8_t temperature_dec;    /* 温度 ℃ 小数部分 (DHT11 恒为 0) */
 } DHT11_Data;
 
-/* 须在 MX_GPIO_Init() 之后调用 */
 uint8_t DHT11_Init(void);
 
 /* 读一次温湿度, 成功返回 1; 间隔需 >= 1s */

@@ -1,8 +1,8 @@
 /* ============================================================================
- * WiFi 通信任务: 联网 + MQTT 上报, 所有碰 ESP8266 的事都在这里
- * 业务策略在本文件, AT 指令与网络细节在 BSP/ESP8266。
- * 驱动顺序阻塞 (一次连接最坏十几秒), 故独立任务跑。
- * 上报: 值不变不发, 变了立刻发。
+ * WiFi 通信任务: 联网 + MQTT 上报; 所有 ESP8266 操作集中于此
+ * 业务策略在本文件, AT 指令与网络细节在 BSP/ESP8266.
+ * 驱动为顺序阻塞式 (一次连接最坏十几秒), 故单独任务运行.
+ * 上报策略: 值不变不发, 变化立即发.
  * ========================================================================== */
 
 #include "task_wifi.h"
@@ -17,19 +17,19 @@
 #include <stdio.h>
 #include <string.h>
 
-#define WIFI_RETRY_DELAY_MS     5000    /* 重连前歇一下, 等模块复位后稳定 */
+#define WIFI_RETRY_DELAY_MS     5000    /* 重连前等待, 等模块复位稳定 */
 
-/* 连续失败这么多次才判定链路死了. 单次失败可能只是网络抖一下, 而重连要十几秒 */
+/* 连续失败达此次数判定链路断开: 单次失败可能只是网络抖动, 而重连需十几秒 */
 #define WIFI_MAX_CONSEC_FAIL    3
 
 static void TaskWifi(void *argument);
 
 /* ============================================================================
  * 上报报文 JSON
- * 报文 = {"id","version","params"} + 属性段; 载荷里的 " 和 , 多写一层反斜杠
- * (AT 指令按逗号切参数, 不转义会被切碎)。
- * 用法: 填值 → Report() 拼报文并判变化 → 发成功再 Commit()。
- * 未 Commit 时下次 Report() 仍报"变了", 发送失败天然带重试。
+ * 报文 = {"id","version","params"} + 属性段; 载荷里的 " 和 , 多加一层反斜杠
+ * (AT 指令按逗号切参数, 不转义会被切开).
+ * 用法: 填值 → Report() 拼报文并判变化 → 发送成功后再 Commit().
+ * 未 Commit 时下次 Report() 仍判定为变化, 发送失败即自带重试.
  * ========================================================================== */
 
 #define JSON_PARAMS_SIZE    96      /* 三段属性拼完最长约 78 字节 */
@@ -53,8 +53,8 @@ static uint8_t Json_Report(void)
 {
     unsigned long lux10;
 
-    /* 属性名必须与 OneNET 功能定义一致 (大小写敏感).
-     * lux 放大 10 倍取整, 拆一位小数拼接, 避免链接 float 版 printf */
+    /* 属性名须与 OneNET 功能定义一致 (大小写敏感).
+     * lux 放大 10 倍取整后拆位拼接, 避免链接 float 版 printf */
     lux10 = (unsigned long)(s_Lux * 10.0f + 0.5f);      /* 四舍五入到 0.1 lux */
 
     (void)snprintf(s_Params, sizeof(s_Params),
@@ -75,7 +75,7 @@ static uint8_t Json_Report(void)
     return 1;
 }
 
-/* 发送成功后调用, 把当前值认作"已上报". 失败就别调 */
+/* 发送成功后调用, 将当前值记为已上报; 失败不调用 */
 static void Json_Commit(void)
 {
     (void)strcpy(s_Sent, s_Params);
@@ -85,7 +85,7 @@ static void Json_Commit(void)
 
 static uint8_t WifiConnect(void);
 
-/* 复位模块 → 接热点 → 对时 → 配 MQTT → 连 Broker. 失败返回 0 由外层重试;
+/* 复位模块 → 接热点 → 对时 → 配 MQTT → 连 Broker. 失败返回 0, 由外层重试;
  * 过程中更新 g_xWifiState 供 OLED 显示进度. */
 static uint8_t WifiConnect(void)
 {
@@ -102,9 +102,9 @@ static uint8_t WifiConnect(void)
         g_xWifiState = WIFI_STATE_FAIL;
         return 0;
     }
-    g_xWifiState = WIFI_STATE_AP_OK;        /* 热点通了, 接着搞 MQTT */
+    g_xWifiState = WIFI_STATE_AP_OK;        /* 热点已连, 继续 MQTT */
 
-    /* 联网成功顺手对时 (软件时钟无掉电记忆); 失败不拦流程 */
+    /* 联网成功后对时 (软件时钟无掉电保持); 失败不影响后续流程 */
     {
         uint8_t hour;
         uint8_t min;
@@ -154,13 +154,13 @@ static void TaskWifi(void *argument)
 
     for (;;)
     {
-        /* 连不上就重试; WifiConnect() 整体复位模块, 各种异常都能回到干净状态 */
+        /* 连不上则重试; WifiConnect() 每次整体复位模块, 各异常状态均可恢复 */
         while (WifiConnect() == 0)
         {
             vTaskDelay(pdMS_TO_TICKS(WIFI_RETRY_DELAY_MS));
         }
 
-        /* 采集任务每 2 秒往队列里放一条. 连续失败到阈值说明链路死了, 回去重连 */
+        /* 采集任务每 2 秒入队一条; 连续失败达阈值即判定链路断开, 返回重连 */
         failStreak = 0;
         while (failStreak < WIFI_MAX_CONSEC_FAIL)
         {
@@ -185,7 +185,7 @@ static void TaskWifi(void *argument)
 
             if (ESP8266_MQTT_Publish(CFG_MQTT_PUB_TOPIC, s_Buf) == ESP8266_OK)
             {
-                Json_Commit();          /* 发出去了才认它作当前值 */
+                Json_Commit();          /* 发送成功才记为当前值 */
                 failStreak = 0;
             }
             else
@@ -193,6 +193,6 @@ static void TaskWifi(void *argument)
                 failStreak++;
             }
         }
-        /* 连续失败到阈值: 回到 for(;;) 顶部重连 */
+        /* 连续失败达阈值: 回到循环顶部重连 */
     }
 }

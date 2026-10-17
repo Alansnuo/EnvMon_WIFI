@@ -211,16 +211,16 @@ void USART2_IRQHandler(void)
 /**
   * @brief  天问语音模块 (ASRPRO) 的接收中断.
   *
-  * 直接读 DR 顺手清 RXNE, **故意不调 HAL_UART_IRQHandler** —— 那个函数自己也会
-  * 读一次 DR, 先读就把字节吃掉了, HAL 拿到的是空的(见 04 篇第 1 步"做法 A").
+  * 直接读 DR 顺带清 RXNE, 故意不调 HAL_UART_IRQHandler —— 该函数自身也会读一次
+  * DR, 先读会把字节取走, HAL 拿到的是空值.
   *
-  * 收到的一律交给 Asr_RxByteFromISR() 去攒行(遇 \r 或 \n 算一行).
+  * 收到的字节一律交给 Asr_RxByteFromISR() 攒行 (遇 \r 或 \n 算一行).
   *
-  * ⚠️ 放在 USER CODE 段里: CubeMX 重新生成这个文件时只保留 USER CODE 段.
-  *    (project.ioc 里没勾 USART1 中断, 所以 CubeMX 不会自己生成这个函数.)
-  * ⚠️ 读 DR 同时也会清 ORE(F1 上读 SR 再读 DR 就清), 所以溢出不会把接收卡死.
-  *    万一以后发现"收几行后就彻底收不到了", 在这里补:
-  *      if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_ORE)) { __HAL_UART_CLEAR_OREFLAG(&huart1); }
+  * 放在 USER CODE 段内: CubeMX 重新生成本文件时只保留 USER CODE 段.
+  * (project.ioc 中未勾选 USART1 中断, 故 CubeMX 不会自行生成该函数.)
+  * 读 DR 同时也会清 ORE (F1 上读 SR 再读 DR 即清), 因此溢出不会卡死接收.
+  * 若日后出现"收几行后彻底收不到", 在此补:
+  *   if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_ORE)) { __HAL_UART_CLEAR_OREFLAG(&huart1); }
   */
 void USART1_IRQHandler(void)
 {

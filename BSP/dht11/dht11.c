@@ -41,7 +41,7 @@ static void DHT11_PinInput(void)
     DHT11_SetConf(DHT11_CONF_IN_PU);
 }
 
-/* ===== 等电平 / 测电平宽度 ===== 用 BSP_GetUs() 读 TIM2, 16 位回绕靠无符号相减兜住 */
+/* ===== 等电平 / 测电平宽度 ===== 用 BSP_GetUs() 读 TIM2, 16 位回绕由无符号相减处理 */
 
 /* 等总线变成 level 电平, 超时返回 0 */
 static uint8_t DHT11_WaitLevel(uint8_t level, uint16_t timeout_us)
@@ -70,9 +70,6 @@ static uint16_t DHT11_MeasureHighUs(uint16_t timeout_us)
 /* ========================= 对外接口 ========================= */
 uint8_t DHT11_Init(void)
 {
-    /* 先读一次拉起 us 时基, 避免在关中断位流里才初始化 */
-    (void)BSP_GetUs();
-
     DHT11_PinOutput();
     DHT11_HIGH();                                   /* 空闲时释放总线 */
     BSP_DelayMs(1000);                              /* 上电后传感器需要约 1s 稳定 */
@@ -91,7 +88,7 @@ uint8_t DHT11_Read(DHT11_Data *data)
     /* --- 1. 起始信号: 拉低 20ms, 再释放 --- */
     DHT11_PinOutput();
     DHT11_LOW();
-    /* 用 BSP_DelayMs: 任务里挂起 20ms 让出 CPU, 电平由硬件保持; 必须在关中断之外调用 */
+    /* 用 BSP_DelayMs: 任务中挂起 20ms 让出 CPU, 电平由硬件保持; 须在关中断之外调用 */
     BSP_DelayMs(20);
     DHT11_PinInput();                               /* 先切输入+上拉 */
     BSP_DelayUs(30);
@@ -119,12 +116,12 @@ exit:
     DHT11_HIGH();                                   /* 释放总线, 回到空闲 */
 
     if (ok && (buf[4] == (uint8_t)(buf[0] + buf[1] + buf[2] + buf[3]))) {
-        /* 湿度 0 或温度 >50 判为脏数据 (受干扰时可能全 0 且校验和碰巧对上), 丢弃 */
+        /* 湿度 0 或温度 >50 判为脏数据 (受干扰时可能全 0 且校验和恰好通过), 丢弃 */
         if (buf[0] == 0U || buf[2] > 50U) { return 0; }
 
         data->humidity        = buf[0];
         data->temperature     = buf[2];
-        /* 小数位: DHT11 恒为 0, 兼容品可能塞垃圾, 夹到 0~9 避免显示异常 */
+        /* 小数位: DHT11 恒为 0, 兼容品可能给出无效值, 夹到 0~9 避免显示异常 */
         data->humidity_dec    = (buf[1] > 9U) ? 0U : buf[1];
         data->temperature_dec = (buf[3] > 9U) ? 0U : buf[3];
         return 1;

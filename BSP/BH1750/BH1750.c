@@ -10,8 +10,6 @@
 
 /* 软件 I2C 原语已抽到 BSP/MyI2C: MyI2C_Start/Stop/SendByte/RecvByte */
 
-
-
 /* 发一条单字节命令. 返回 1 = 地址和命令都被应答 */
 static uint8_t BH1750_WriteCmd(uint8_t cmd)
 {

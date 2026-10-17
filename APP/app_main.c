@@ -1,6 +1,6 @@
 /* ============================================================================
  * 应用层总入口: 建数据通道 + 建任务
- * 只负责"建"不负责"跑" —— 以后加传感器, 在这里加一句 TaskXxxCreate() 即可
+ * 只建不跑; 新增传感器在此加一句 TaskXxxCreate()
  * ========================================================================== */
 
 #include "app_main.h"
@@ -29,7 +29,7 @@ volatile uint8_t    g_xWifiState   = WIFI_STATE_CONNECTING;
 
 /* ========================= FreeRTOS 钩子 ========================= */
 
-/* 栈溢出钩子 (configCHECK_FOR_STACK_OVERFLOW=2 要求), 死循环便于调试定位 */
+/* 栈溢出钩子 (configCHECK_FOR_STACK_OVERFLOW=2 要求); 死循环便于调试时定位 */
 void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName)
 {
     (void)xTask;
@@ -40,7 +40,7 @@ void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName)
 /* ========================= 应用层总入口 ========================= */
 void App_Init(void)
 {
-    /* --- 1. 板级驱动初始化 (调度器之前: 内部延时不挡别人; ⚠️ 均不可在任务里重调) --- */
+    /* --- 1. 板级驱动初始化 (调度器之前: 延时只阻塞本流程; 各驱动均不可在任务里重调) --- */
     DHT11_Init();   /* 内部有 1 秒上电延时 */
     BH1750_Init();
     Asr_Init();     /* 只开 USART1 RXNE 中断, UART 本体已由 CubeMX 配好 */

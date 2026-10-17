@@ -98,9 +98,7 @@ static void OLED_SetCursor(uint8_t Y, uint8_t X)
     OLED_WriteCommand(0x00 | (X & 0x0F));            /* 设置X位置低4位 */
 }
 
-/**
-  * @brief  OLED 清屏
-  */
+/* OLED 清屏 */
 void OLED_Clear(void)
 {
     uint8_t i, j;
@@ -150,9 +148,7 @@ void OLED_ShowString(uint8_t Line, uint8_t Column, char *String)
     }
 }
 
-/**
-  * @brief  X 的 Y 次方
-  */
+/* X 的 Y 次方 */
 static uint32_t OLED_Pow(uint32_t X, uint32_t Y)
 {
     uint32_t Result = 1;
@@ -246,9 +242,7 @@ void OLED_ShowBinNum(uint8_t Line, uint8_t Column, uint32_t Number, uint8_t Leng
     }
 }
 
-/**
-  * @brief  OLED 初始化
-  */
+/* OLED 初始化 */
 void OLED_Init(void)
 {
     uint32_t i, j;
@@ -296,5 +290,5 @@ void OLED_Init(void)
 
     OLED_WriteCommand(0xAF);    /* 开启显示 */
 
-    OLED_Clear();                /* OLED清屏 */
+    OLED_Clear();                /* 清屏 */
 }

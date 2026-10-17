@@ -11,7 +11,7 @@
  *               1 <告警码>  语音告警
  *               2 <数值>    只播报一个数字
  *   模块 → MCU  "TEMP\r\n" / "HUMI\r\n" / "LUX\r\n"  请求某项数据
- * ⚠️ 不要恢复 printf 到 USART1; 调试助手 TX 不可接 PA10 (与模块 TX 对顶). */
+ * USART1 不可恢复 printf; 调试助手 TX 不可接 PA10 (与模块 TX 冲突). */
 
 extern UART_HandleTypeDef huart1;           /* 定义在 Core/Src/usart.c */
 #define ASR_UART        huart1

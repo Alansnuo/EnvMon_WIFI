@@ -1,7 +1,6 @@
 /**
  * esp8266.h
  * ESP8266 WiFi 模块驱动函数声明
- * @date 2026.09.23
  *
  * 基于 USART2 (DMA 环形接收 + 中断发送), 把 WiFi / MQTT 操作翻译成 AT 指令.
  * 顺序阻塞: 每个接口内部"发一条命令 → 等应答 → 再发下一条", 返回前调用者不会
@@ -9,8 +8,6 @@
  *
  * 用法: Init() → ConnectAP() → GetNetTime() → MQTT_SetParam() → MQTT_ConnectBroker() → 循环 Publish()
  *
- * 指令名以本固件实际支持的为准: 老资料里的 AT+MQTTCFG 在这儿叫
- * AT+MQTTUSERCFG + AT+MQTTCONNCFG; 心跳由模块自己按 keepalive 发
  */
 
 #ifndef __ESP8266_H
@@ -79,8 +76,7 @@ ESP8266_Status ESP8266_GetNetTime(uint8_t *hour, uint8_t *min, uint8_t *sec);
 
 /* ================================== MQTT ================================== */
 
-/* 模块自己讲 MQTT 协议(报文在它内部拼), 我们只管发 AT 指令.
- * 用法: SetParam() → ConnectBroker() → Publish() */
+/* 用法: SetParam() → ConnectBroker() → Publish() */
 
 /**
  * @brief  配 MQTT 鉴权 + 连接参数 (底下三条指令: USERCFG / PASSWORD / CONNCFG).
@@ -106,7 +102,7 @@ ESP8266_Status ESP8266_MQTT_ConnectBroker(const char host[], uint16_t port);
 
 /**
  * @brief  发布一条消息 (QoS 0). 载荷里的 " 和 , 要调用方先转义成 \" 和 \,
- *         (见 app_json.c); 返回 OK 只代表模块收下了指令
+ *         (见 task_wifi.c); 返回 OK 只代表模块收下了指令
  * @param  topic  主题
  * @param  data   载荷, 已转义
  * @retval ESP8266_OK = 成功, 其余 = 失败原因

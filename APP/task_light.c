@@ -73,7 +73,7 @@ static void TaskLight(void *argument)
         {
             bright = (uint16_t)((int32_t)start + diff * (int32_t)i / (int32_t)LIGHT_FADE_STEPS);
             PWM_SetBright(bright);
-            /* 每 20ms 让出 CPU, 不忙等 */
+            /* 每档延时 20ms, 让出 CPU */
             vTaskDelay(pdMS_TO_TICKS(LIGHT_FADE_STEP_MS));
         }
     }

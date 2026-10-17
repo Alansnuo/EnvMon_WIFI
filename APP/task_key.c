@@ -1,5 +1,5 @@
 /* ============================================================================
- * 按键任务 —— 每 20ms 扫一遍, 把"按键事件"翻译成"界面动作"
+ * 按键任务: 每 20ms 扫描一次, 将按键事件翻译为界面动作
  *
  * 显示页 (KEY2/KEY3 循环切页: 首页 -> 温度 -> 湿度 -> 光照 -> 首页):
  *   KEY1  进入设置面 (菜单)
@@ -7,12 +7,12 @@
  *
  * 设置面 (菜单) / 编辑页:
  *   KEY1  菜单 -> 退出到首页; 编辑 -> 回菜单
- *   KEY2  菜单里往上选一项; 编辑里 +1 (阈值加)
- *   KEY3  菜单里往下选一项; 编辑里 -1 (阈值减)
+ *   KEY2  菜单上移一项; 编辑 +1 (阈值加)
+ *   KEY3  菜单下移一项; 编辑 -1 (阈值减)
  *   KEY4  确认: 菜单 -> 进编辑该项; 编辑 -> 回菜单
  *
- * 消抖在 BSP/KEY/key.c; 本文件只认 KEY_EVENT_PRESS (按下报一次)。
- * 只改共享变量, 不碰 OLED / 语音 —— 单向数据流, 无需加锁。
+ * 消抖在 BSP/KEY/key.c; 本文件只处理 KEY_EVENT_PRESS (按下报一次).
+ * 仅修改共享变量, 不碰 OLED / 语音, 单向数据流, 无需加锁.
  * ========================================================================== */
 
 #include "task_key.h"
@@ -23,7 +23,7 @@
 
 static void TaskKey(void *argument);
 
-/* 显示页顺序表 —— KEY2/KEY3 就在这几页之间循环 */
+/* 显示页顺序表: KEY2/KEY3 在此序列内循环 */
 #define DISP_PAGE_COUNT 4U
 static const uint8_t s_DispPage[DISP_PAGE_COUNT] = {
     UI_PAGE_ENV, UI_PAGE_TEMP, UI_PAGE_HUMI, UI_PAGE_LUX
@@ -127,7 +127,7 @@ static void Key4_Action(Key_Event ev)
     }
     else if (g_xUiPage == UI_PAGE_EDIT)
     {
-        g_xUiPage = UI_PAGE_MENU;       /* 改完回设置面 (阈值就在 RAM 变量里) */
+        g_xUiPage = UI_PAGE_MENU;       /* 改完回设置面 (阈值即 RAM 变量) */
     }
     /* 显示页: KEY4 无动作 */
 }

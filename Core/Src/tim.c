@@ -133,7 +133,8 @@ void MX_TIM2_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN TIM2_Init 2 */
-
+  /* 自由运行, 不使能中断; BSP_DelayUs() 直接读 CNT */
+  (void)HAL_TIM_Base_Start(&htim2);
   /* USER CODE END TIM2_Init 2 */
 
 }

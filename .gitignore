@@ -1,47 +1,56 @@
-# MDK编译产物
+# ==================================================================
+# EnvMon_WIFI .gitignore
+# 原则: 只跟踪"源代码 + Keil 工程文件";
+#       笔记 / 编译产物 / 本机配置 / 临时文件一律不入库.
+# 注意: 本文件只对"未跟踪"文件生效; 已入库的文件需 git rm --cached 移出索引.
+# ==================================================================
+
+# ---------- 笔记(只留本地; 任何目录下的 .md 都不入库, 根目录 README 除外) ----------
+*.md
+!README.md
+笔记/
+详解/
+整体架构/
+整体架构笔记/
+移植笔记*/
+
+# ---------- MDK-Keil 编译产物 / 本机生成文件 ----------
 MDK-ARM/project/
-MDK-ARM/build.log
-MDK-ARM/verify_build.log
-MDK-ARM/*.uvguix.*
-MDK-ARM/*.uvoptx
-*.axf
-*.hex
-*.bin
-*.map
+MDK-ARM/Objects/
+MDK-ARM/Listings/
+MDK-ARM/DebugConfig/
+MDK-ARM/RTE/
+MDK-ARM/.vscode/
 *.o
 *.d
 *.crf
 *.dep
+*.axf
+*.hex
+*.bin
+*.map
+*.lst
+*.iex
+*.htm
+*.uvguix.*
+*.uvoptx
+*.scvd
+JLinkLog.txt
 
-# VSCode插件日志（*.log 覆盖子目录里的同名文件）
-.vscode/keil-assistant.log
-.vscode/uv4.log
-.vscode/uv4.log.lock
+# ---------- 日志(VSCode 插件 / 构建日志) ----------
 *.log
 *.log.lock
 
-# Keil 其它产物
-MDK-ARM/Objects/
-MDK-ARM/Listings/
-MDK-ARM/startup_stm32f103xb.lst
-
-# CMSIS 中本工程未使用的部分（DSP/Lib/NN，约 47M，uvprojx 无任何引用）
+# ---------- CMSIS 中本工程未使用的部分(DSP/Lib/NN) ----------
 Drivers/CMSIS/DSP/
 Drivers/CMSIS/Lib/
 Drivers/CMSIS/NN/
 
-# 笔记 PDF（与 详解/*.md 内容重复，约 36M）
-笔记/
+# ---------- IDE 本机专属配置 ----------
+.idea/
 
-# 详解笔记（本地留着，不发布）
-详解/
-
-# 编辑器自动生成本机专属文件（Keil Assistant 打开工程时会重新生成）
-MDK-ARM/.vscode/
-
-# 临时备份
+# ---------- 临时备份 / 语法自检工作区 ----------
+*.bak
 *.bak-*
-
-# 语法自检的编译产物（桩头文件保留，obj/ 不提交）
-_syntax_check/obj/
-
+_pre_reset_backup/
+_syntax_check/

@@ -1,7 +1,6 @@
 /**
  * esp8266.c
- * ESP8266 WiFi 模块驱动函数实现
- * @date 2026.09.23
+ * ESP8266 WiFi 模块驱动实现
  *
  * 基于 USART2 (DMA 环形接收 + 中断发送), 把 WiFi / MQTT 操作翻译成 AT 指令.
  * 顺序阻塞: 每个接口内部"发一条命令 → 等应答 → 再发下一条", 等的时候调
@@ -18,7 +17,7 @@
 
 /* -------------------------------- 私有变量 -------------------------------- */
 
-/* 当前命令 (在 RAM 里, 中断发送要用) */
+/* 当前命令 (置于 RAM, 中断发送需访问) */
 static char     s_Cmd[ESP8266_CMD_BUF_SIZE];
 
 /* 接收 */
@@ -58,41 +57,38 @@ ESP8266_Status ESP8266_Init(void)
         return ESP8266_ERR_AT;
     }
 
-    /* 复位脉冲: 拉低 100ms 再放开 (模块启动日志是 74880 波特, 收进来是乱码) */
+    /* 复位脉冲: 拉低 100ms 后释放 (模块启动日志为 74880 波特, 收进来是乱码) */
     HAL_GPIO_WritePin(ESP8266_RST_PORT, ESP8266_RST_PIN, GPIO_PIN_RESET);
     BSP_DelayMs(100);
     HAL_GPIO_WritePin(ESP8266_RST_PORT, ESP8266_RST_PIN, GPIO_PIN_SET);
     BSP_DelayMs(1000);
 
-    /* 探活: 回 OK 就是活着 */
+    /* 探活: 返回 OK 即模块正常 */
     st = ESP8266_SendCmd("AT\r\n", "OK", ESP8266_TIMEOUT);
     if (st != ESP8266_OK)
     {
         return st;
     }
 
-    /* 关回显, 后面匹配应答才干净 */
+    /* 关闭回显, 后续应答匹配才不受干扰 */
     st = ESP8266_SendCmd("ATE0\r\n", "OK", ESP8266_TIMEOUT);
     if (st != ESP8266_OK)
     {
         return st;
     }
 
-    /* 先把模式设成 Station(1).
-     * ⚠️ 必须排在 AT+CWAUTOCONN 前面 —— CWAUTOCONN 只在 Station(1)/Station+AP(3) 下
-     *    有效, 模块 flash 里若留着出厂的 CWMODE=2(SoftAP), 这条会直接回 ERROR.
-     *    原来 CWMODE 只在 ConnectAP() 里发, 于是换一个 flash 里是 CWMODE=2 的模块,
-     *    init 一上来就卡死在下面的 CWAUTOCONN, 连热点那一步根本轮不到.
-     * CWMODE 是掉电保存的, 每次重发一遍不费事, 也省得依赖模块 flash 里存了什么 */
+    /* 先设成 Station(1). 必须排在 AT+CWAUTOCONN 之前: CWAUTOCONN 仅在
+     * Station(1) / Station+AP(3) 下有效, 若模块 flash 中留有出厂 CWMODE=2(SoftAP),
+     * 该命令直接返回 ERROR, 后面的流程全部无法进行.
+     * CWMODE 掉电保存, 每次重发以免依赖 flash 中的既有值 */
     st = ESP8266_SendCmd("AT+CWMODE=1\r\n", "OK", ESP8266_TIMEOUT);
     if (st != ESP8266_OK)
     {
         return st;
     }
 
-    /* 关掉模块自己的自动重连: 它会在后台抢射频状态, 导致 CWJAP 连不上.
-     * ⚠️ 这只是一条"尽力而为"的优化 —— 某些老固件/某些模式下它回 ERROR,
-     *    不该因此让整个 WiFi 初始化失败, 所以失败忽略, 返回值不采纳. */
+    /* 关闭模块自身的自动重连 (会在后台占用射频状态, 导致 CWJAP 连不上).
+     * 部分老固件/模式下该命令返回 ERROR, 属尽力而为, 失败忽略不影响初始化 */
     (void)ESP8266_SendCmd("AT+CWAUTOCONN=0\r\n", "OK", ESP8266_TIMEOUT);
 
     return ESP8266_OK;
@@ -107,20 +103,20 @@ ESP8266_Status ESP8266_ConnectAP(const char ssid[], const char password[])
 {
     ESP8266_Status st;
 
-    /* CWMODE 是掉电保存的, 每次重发一遍不费事, 也省得依赖模块 flash 里存了什么 */
+    /* CWMODE 掉电保存, 每次重发以免依赖模块 flash 中的既有值 */
     st = ESP8266_SendCmd("AT+CWMODE=1\r\n", "OK", ESP8266_TIMEOUT);
     if (st != ESP8266_OK)
     {
         return st;
     }
 
-    /* 清掉可能残留的关联; 没连的时候是空操作, 所以失败也往下走 */
+    /* 清除可能残留的关联; 未连接时为空操作, 失败可继续 */
     (void)ESP8266_SendCmd("AT+CWQAP\r\n", "OK", ESP8266_TIMEOUT);
 
     /* AT+CWJAP="<名字>","<密码>" */
     (void)snprintf(s_Cmd, sizeof(s_Cmd), "AT+CWJAP=\"%s\",\"%s\"\r\n", ssid, password);
 
-    /* 这一步包含关联 + DHCP, 要留够时间 */
+    /* 这一步包含关联 + DHCP, 须留足时间 */
     return ESP8266_Exec("OK", ESP8266_AP_TIMEOUT);
 }
 
@@ -167,8 +163,8 @@ ESP8266_Status ESP8266_MQTT_SetParam(const char clientId[], const char username[
  */
 ESP8266_Status ESP8266_MQTT_ConnectBroker(const char host[], uint16_t port)
 {
-    /* AT+MQTTCONN=0,"<host>",<port>,0 —— 域名里不会有 " 和 ,, 直接拼;
-     * <reconnect> 传 0: 模块不自己重连, 交给任务层"连续失败 N 次就整个重来" */
+    /* AT+MQTTCONN=0,"<host>",<port>,0 —— 域名中不含 " 和 ,, 可直接拼接;
+     * <reconnect> 传 0: 模块不自行重连, 由任务层按"连续失败 N 次即整体重连"处理 */
     (void)snprintf(s_Cmd, sizeof(s_Cmd), "AT+MQTTCONN=0,\"%s\",%u,0\r\n",
                    host, (unsigned)port);
 
@@ -183,8 +179,8 @@ ESP8266_Status ESP8266_MQTT_Publish(const char topic[], const char data[])
 {
     ESP8266_Status st;
 
-    /* AT+MQTTPUB=0,"<主题>","<载荷>",0,0 —— 载荷里的 " 和 , 得是已经转义好的
-     * \" 和 \, (见 app_json.c): 模块按逗号切参数, 不转义会把 JSON 切碎 */
+    /* AT+MQTTPUB=0,"<主题>","<载荷>",0,0 —— 载荷中的 " 和 , 须已转义为
+     * \" 和 \, (见 task_wifi.c): 模块按逗号切参数, 不转义会将 JSON 切开 */
     (void)snprintf(s_Cmd, sizeof(s_Cmd), "AT+MQTTPUB=0,\"%s\",\"%s\",0,0\r\n",
                    topic, data);
 
@@ -195,9 +191,9 @@ ESP8266_Status ESP8266_MQTT_Publish(const char topic[], const char data[])
 
 /* ================================== 对时 ================================== */
 
-/* ESP-AT 原生 SNTP: 开服务定死时区, 之后直接读模块回的格式化时间串.
- * SNTP 后台异步同步, 复位模块后首次联网要等它跟 NTP 对完; 单轮给足时间,
- * 一轮没同步上就重开 SNTP 再等一轮 —— 否则一次超时就永久停在 00:00 */
+/* ESP-AT 原生 SNTP: 开启服务并固定时区, 之后直接读模块返回的格式化时间串.
+ * SNTP 后台异步同步, 模块复位后首次联网需等其与 NTP 同步完成; 单轮给足时间,
+ * 一轮未同步成功则重开 SNTP 再等一轮, 否则一次超时后会永久停在 00:00 */
 #define NETTIME_MIN_YEAR         2020U            /* 年份早于此视为"还没同步上" */
 #define NETTIME_SYNC_TIMEOUT     20000U           /* 单轮等 SNTP 同步的上限(ms) */
 #define NETTIME_RETRY            2U               /* 同步轮数(含首轮) */
@@ -230,13 +226,13 @@ ESP8266_Status ESP8266_GetNetTime(uint8_t *hour, uint8_t *min, uint8_t *sec)
     tick = HAL_GetTick();
     for (;;)
     {
-        /* 用 "OK" 收尾(而非 "CIPSNTPTIME:"), 确保整行时间串收全再解析 */
+        /* 以 "OK" 收尾(而非 "CIPSNTPTIME:"), 确保整行时间串收全后再解析 */
         st = ESP8266_SendCmd("AT+CIPSNTPTIME?\r\n", "OK", ESP8266_TIMEOUT);
         if (st == ESP8266_OK)
         {
 
-            /* "+CIPSNTPTIME:Fri Nov 17 17:09:22 2023"
-             * 键名自带冒号, 其后再找冒号就是 HH 与 MM 之间那个 */
+            /* "+CIPSNTPTIME:Fri Nov 17 17:09:22 2023":
+             * 键名自带冒号, 其后的下一个冒号即 HH 与 MM 之间那个 */
             p = strstr((char *)s_RxBuf, "CIPSNTPTIME:");
             q = (p != NULL) ? strchr(p, ':') : NULL;
             q = (q != NULL) ? strchr(q + 1, ':') : NULL;
@@ -260,7 +256,7 @@ ESP8266_Status ESP8266_GetNetTime(uint8_t *hour, uint8_t *min, uint8_t *sec)
 
         if ((HAL_GetTick() - tick) > NETTIME_SYNC_TIMEOUT)
         {
-            /* 这一轮没等到, 重开一次 SNTP 后台重新对时, 再给一轮时间 */
+            /* 本轮未同步: 重开 SNTP 再给一轮时间 */
             if ((++retry) < NETTIME_RETRY)
             {
                 (void)ESP8266_SendCmd("AT+CIPSNTPCFG=1,8\r\n", "OK", ESP8266_TIMEOUT);
@@ -277,24 +273,23 @@ ESP8266_Status ESP8266_GetNetTime(uint8_t *hour, uint8_t *min, uint8_t *sec)
 
 /* --------------------------- 接收: DMA 环形缓冲 --------------------------- */
 
-/* DMA 在 CIRCULAR 模式下自己搬字节, 我们只轮询 CNDTR 把新字节搬进解析缓冲.
- * 非用 DMA 不可: F1 的串口只有 1 字节接收寄存器, 而 DHT11 要关中断约 4ms,
- * 用 RXNE 中断收的话那 4ms 里的字节必丢 */
+/* DMA 在 CIRCULAR 模式下自动搬运字节, 这里只轮询 CNDTR 把新字节搬进解析缓冲.
+ * 必须用 DMA: F1 的串口只有 1 字节接收寄存器, 而 DHT11 需关中断约 4ms,
+ * 若用 RXNE 中断接收, 这 4ms 内的字节必然丢失 */
 
-/* 启动 DMA 接收. Init 里调 (每次 Init 都要重挂) */
+/* 启动 DMA 接收, 在 Init 中调用 (每次 Init 都要重新挂载) */
 static ESP8266_Status ESP8266_RxStart(void)
 {
-    /* ⚠️ 必须把 UART 状态强制清回 READY, 否则**重连会彻底失效**:
+    /* 必须把 UART 状态强制清回 READY, 否则重连会彻底失效:
      * HAL 的 Transmit_IT / Receive_DMA 都要求 gState / RxState == READY,
-     * 否则直接返回 HAL_BUSY. 上一次如果 TX 超时没发完, 或 DMA 没收干净,
-     * 状态就卡在 BUSY_TX / BUSY_RX —— 之后每一条命令都失败, 表现是模块
-     * 明明恢复了, 却永远连不上、只能在外层任务里无限重试.
-     * HAL_UART_Abort() 一次把收发两侧都复位(含 DMA 清理). */
+     * 否则直接返回 HAL_BUSY. 若上次 TX 超时未发完或 DMA 未收干净,
+     * 状态会卡在 BUSY_TX / BUSY_RX, 之后每条命令都失败 —— 现象是模块已恢复
+     * 却始终连不上, 只能在外层任务中不断重试.
+     * HAL_UART_Abort() 一次复位收发两侧 (含 DMA 清理). */
     (void)HAL_UART_Abort(&ESP8266_UART);
 
-    /* ⚠️ 三个都要清. 只重置 s_DmaTail 不够: s_RxBuf/s_RxLen 是上一轮 Exec 留下的
-     * 残留(比如被模块回显的命令), 不清的话会被算进"复位后收到的字节数" ——
-     * 之前那个假的 "boot-window bytes: 205" 就是这么来的 */
+    /* 三处都要清: 仅重置 s_DmaTail 不够, s_RxBuf / s_RxLen 是上一轮 Exec 的残留
+     * (如被模块回显的命令), 不清会被计入"复位后收到的字节数" */
     memset(s_RxBuf, 0, sizeof(s_RxBuf));
     s_RxLen   = 0;
     s_DmaTail = 0;
@@ -305,11 +300,11 @@ static ESP8266_Status ESP8266_RxStart(void)
         return ESP8266_ERR_AT;
     }
 
-    /* 关掉 DMA 传输完成中断: 环形模式下 HAL 的回调什么都不做, 我们轮询 CNDTR */
+    /* 关闭 DMA 传输完成中断: 环形模式下 HAL 的回调无操作, 改由轮询 CNDTR 获取进度 */
     __HAL_DMA_DISABLE_IT(ESP8266_UART.hdmarx, DMA_IT_TC);
 
-    /* 串口错误中断也要关(HAL 在 Receive_DMA 里顺手开的 CR3.EIE): 一开, 帧错/
-     * 噪声/溢出都会被 HAL_UART_IRQHandler 当致命错误、直接中止 DMA 接收 */
+    /* 串口错误中断也须关闭 (HAL 在 Receive_DMA 中会顺带打开 CR3.EIE): 否则帧错 /
+     * 噪声 / 溢出都会被 HAL_UART_IRQHandler 视为致命错误并中止 DMA 接收 */
     __HAL_UART_DISABLE_IT(&ESP8266_UART, UART_IT_ERR);
 
     return ESP8266_OK;
@@ -322,7 +317,7 @@ static uint16_t ESP8266_RxHead(void)
                       __HAL_DMA_GET_COUNTER(ESP8266_UART.hdmarx));
 }
 
-/* 从环形缓冲取最多 max 字节到 dst, 返回实际取了多少(0 = 没新数据) */
+/* 从环形缓冲取至多 max 字节到 dst, 返回实际取出字节数 (0 = 无新数据) */
 static uint16_t ESP8266_RxPop(uint8_t dst[], uint16_t max)
 {
     uint16_t head  = ESP8266_RxHead();
@@ -341,7 +336,7 @@ static uint16_t ESP8266_RxPop(uint8_t dst[], uint16_t max)
     return moved;
 }
 
-/* 把新字节搬进解析缓冲. 放不下就少搬点: 读指针卡住就追不上 DMA 了 */
+/* 把新字节搬入解析缓冲; 空间不足时少搬, 否则读指针将永远落后于 DMA */
 static void ESP8266_RxDrain(void)
 {
     uint16_t room = (uint16_t)(ESP8266_RX_BUF_SIZE - 1U - s_RxLen);
@@ -349,8 +344,8 @@ static void ESP8266_RxDrain(void)
     s_RxLen = (uint16_t)(s_RxLen + ESP8266_RxPop(&s_RxBuf[s_RxLen], room));
 }
 
-/* 清接收缓冲: DMA 里没搬走的和已搬进解析缓冲的都要清, 只清后者会被灌回来.
- * memset 不只是清内容: 靠它保证末尾恒为 '\0', strstr 才安全 */
+/* 清接收缓冲: DMA 中未搬走的与已搬入解析缓冲的都要清, 只清后者会被回灌.
+ * memset 同时保证缓冲区末尾恒为 '\0', strstr 才安全 */
 static void ESP8266_ClearRxBuf(void)
 {
     s_DmaTail = ESP8266_RxHead();
@@ -360,19 +355,19 @@ static void ESP8266_ClearRxBuf(void)
 
 /* -------------------------------- 命令收发 -------------------------------- */
 
-/* 发 s_Cmd 里拼好的命令并等应答, 超时或模块回 ERROR/FAIL 就带着原因返回 */
+/* 发送 s_Cmd 中拼好的命令并等应答, 超时或模块返回 ERROR/FAIL 时带原因返回 */
 static ESP8266_Status ESP8266_Exec(const char ack[], uint32_t timeoutMs)
 {
     uint16_t len = (uint16_t)strlen(s_Cmd);
     uint32_t tick;
 
-    /* 超过 256 字节就不发: 半条命令发过去只会回一句含义模糊的 ERROR */
+    /* 超过 256 字节不发送: 截断的命令只会返回含义不明的 ERROR */
     if (len > ESP8266_AT_CMD_MAX)
     {
         return ESP8266_ERR_PARAM;
     }
 
-    /* 发之前清接收缓冲: 上一条命令的应答别混进来 */
+    /* 发送前清接收缓冲, 避免上一条命令的应答混入 */
     ESP8266_ClearRxBuf();
 
     if (HAL_UART_Transmit_IT(&ESP8266_UART, (uint8_t *)s_Cmd, len) != HAL_OK)
@@ -380,21 +375,21 @@ static ESP8266_Status ESP8266_Exec(const char ack[], uint32_t timeoutMs)
         return ESP8266_ERR_AT;
     }
 
-    /* 判"发完没有"只能看 gState: 接收 DMA 让 RxState 一直是 BUSY_RX */
+    /* 判断是否发完只能看 gState: 接收 DMA 使 RxState 恒为 BUSY_RX */
     tick = HAL_GetTick();
     while (ESP8266_UART.gState != HAL_UART_STATE_READY)
     {
         if ((HAL_GetTick() - tick) > ESP8266_TX_TIMEOUT)
         {
-            /* 超时必须把 TX 状态清回 READY: 不然 gState 卡在 BUSY_TX,
-             * 之后 Transmit_IT 一直返回 HAL_BUSY, 整条链路再也起不来 */
+            /* 超时须将 TX 状态清回 READY: 否则 gState 卡在 BUSY_TX,
+             * 后续 Transmit_IT 持续返回 HAL_BUSY, 整条链路无法恢复 */
             (void)HAL_UART_AbortTransmit(&ESP8266_UART);
             return ESP8266_ERR_TIMEOUT;
         }
         BSP_DelayMs(1);
     }
 
-    /* 顺序不能反: 先看应答, 再看 ERROR/FAIL, 最后才判超时 */
+    /* 判断顺序不可颠倒: 先匹配应答, 再看 ERROR/FAIL, 最后判超时 */
     tick = HAL_GetTick();
     for (;;)
     {
@@ -425,7 +420,7 @@ static ESP8266_Status ESP8266_Exec(const char ack[], uint32_t timeoutMs)
     }
 }
 
-/* 发一条字面量命令. 带用户数据的先把命令拼进 s_Cmd, 再直接调 Exec */
+/* 发送字面量命令; 含用户数据的命令先拼进 s_Cmd 再直接调 Exec */
 static ESP8266_Status ESP8266_SendCmd(const char cmd[], const char ack[], uint32_t timeoutMs)
 {
     (void)strcpy(s_Cmd, cmd);
@@ -433,7 +428,7 @@ static ESP8266_Status ESP8266_SendCmd(const char cmd[], const char ack[], uint32
     return ESP8266_Exec(ack, timeoutMs);
 }
 
-/* 透传模式里发原始数据 (HTTP 请求 / +++ 退出序列), 发完就返回, 不等应答 */
+/* 透传模式下发送原始数据 (HTTP 请求 / +++ 退出序列), 发完即返回, 不等应答 */
 static ESP8266_Status ESP8266_SendRaw(const char data[])
 {
     uint16_t len  = (uint16_t)strlen(data);

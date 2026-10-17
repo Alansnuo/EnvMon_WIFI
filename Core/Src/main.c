@@ -95,15 +95,9 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
-  /* ---- 应用层全部在这里启动 --------------------------------------------
-   * App_Init() 内部: DHT11 初始化 → 建数据队列 → 建 WiFi / DHT11 两个任务.
-   * ESP8266 联网、传感器任务、通信任务的创建都在 APP/ 里, main.c 不参与.
-   *
-   * 必须在 vTaskStartScheduler() 之前调用: 此时调度器还没跑, 不能用
-   * vTaskDelay 之类的 API (见《FreeRTOS驱动适配笔记》2.3). */
-  App_Init();
 
-  vTaskStartScheduler();
+  App_Init();    //应用层总入口: 建数据通道 + 建任务
+  vTaskStartScheduler();   // 启动FreeRTOS 调度器
 
   /* 只有 heap 不足、连空闲任务都建不起来时, vTaskStartScheduler() 才会返回 */
   Error_Handler();
@@ -116,8 +110,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    /* 正常情况走不到这里: 调度器启动成功后 main() 就不返回了.
-     * 原来的采集循环已经搬到 APP/task_dht11.c. */
+
   }
   /* USER CODE END 3 */
 }

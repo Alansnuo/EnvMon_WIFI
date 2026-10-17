@@ -13,9 +13,7 @@
 #define SDA_L()   HAL_GPIO_WritePin(MYI2C_SDA_PORT, MYI2C_SDA_PIN, GPIO_PIN_RESET)
 #define SDA_IN()  ((MYI2C_SDA_PORT->IDR & MYI2C_SDA_PIN) ? 1U : 0U)
 
-/**
-  * @brief  产生 I2C 起始条件 (SCL 高时 SDA 下降沿)
-  */
+/* 产生 I2C 起始条件 (SCL 高时 SDA 下降沿) */
 void MyI2C_Start(void)
 {
     SDA_H();
@@ -29,9 +27,7 @@ void MyI2C_Start(void)
     BSP_DelayUs(MYI2C_HALF_US);
 }
 
-/**
-  * @brief  产生 I2C 停止条件 (SCL 高时 SDA 上升沿)
-  */
+/* 产生 I2C 停止条件 (SCL 高时 SDA 上升沿) */
 void MyI2C_Stop(void)
 {
     SDA_L();
