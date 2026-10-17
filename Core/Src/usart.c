@@ -111,37 +111,13 @@ void HAL_UART_MspInit(UART_HandleTypeDef* uartHandle)
 
     GPIO_InitStruct.Pin = GPIO_PIN_10;
     GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
-    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /* USER CODE BEGIN USART1_MspInit 1 */
-
-    /* PA10(USART1_RX) 出厂配置为 GPIO_NOPULL, 必须改成上拉.
-     *
-     * 原因: 天问模块未接(或掉电)时该线悬空, 线上噪声会持续触发 RXNE 中断,
-     * 形成中断风暴占满 CPU. 表现为其它功能异常变慢/失败: ESP8266 驱动为
-     * "发一条 AT → 轮询等应答", 被拖累后每条命令都超时, WiFi 无法连上,
-     * 且更换 WiFi 模块也无法解决.
-     *
-     * UART 空闲电平本就是高, 上拉是正确做法而非权宜之计.
-     * (内部上拉约 40kΩ, 较弱; 模块接入后由模块推挽输出主导, 不受影响.)
-     *
-     * 写在 USER CODE 段内: CubeMX 重新生成时先按 .ioc 写成 NOPULL,
-     * 再执行本段改回 —— 顺序正好, 因此不必修改 project.ioc. */
-    GPIO_InitStruct.Pin  = GPIO_PIN_10;
     GPIO_InitStruct.Pull = GPIO_PULLUP;
     HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-    /* 天问语音模块需在 USART1 上接收数据帧, 必须开 NVIC.
-     * 优先级 6: 须 >= configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY(=5), 否则
-     * 中断中调用 FreeRTOS 的 ...FromISR API 会触发 configASSERT.
-     * (本中断目前只读 DR、不碰 RTOS, 设 6 为留余量 —— 数值越大优先级越低.)
-     *
-     * 写在 USER CODE 段内, CubeMX 重新生成代码时不会被覆盖.
-     * 但不要在 CubeMX 里勾选 "USART1 global interrupt": 它会自行生成
-     * USART1_IRQHandler, 与 stm32f1xx_it.c 中手写的那个符号冲突 (同 TIM2 的问题). */
+    /* USART1 interrupt Init */
     HAL_NVIC_SetPriority(USART1_IRQn, 6, 0);
     HAL_NVIC_EnableIRQ(USART1_IRQn);
+  /* USER CODE BEGIN USART1_MspInit 1 */
 
   /* USER CODE END USART1_MspInit 1 */
   }
@@ -190,14 +166,6 @@ void HAL_UART_MspInit(UART_HandleTypeDef* uartHandle)
     HAL_NVIC_EnableIRQ(USART2_IRQn);
   /* USER CODE BEGIN USART2_MspInit 1 */
 
-  /* 上面那两行 HAL_NVIC_SetPriority / HAL_NVIC_EnableIRQ(USART2_IRQn) 就是
-     CubeMX 里勾上 "USART2 global interrupt" 之后生成的样子, 改动已同步进
-     project.ioc, 重新 Generate Code 不会漂移.
-     谁在用: ESP8266 驱动用 HAL_UART_Transmit_IT 发 AT 指令, 发送完成靠这个
-     中断报给 HAL (见 BSP/ESP8266/esp8266.c).
-     ↑ 原先这段写在 USER CODE 区块之外, 2026-10-10 一次 Generate Code 把它删掉了,
-       现挪进这里, 以后再生成不会再丢. */
-
   /* USER CODE END USART2_MspInit 1 */
   }
 }
@@ -219,6 +187,8 @@ void HAL_UART_MspDeInit(UART_HandleTypeDef* uartHandle)
     */
     HAL_GPIO_DeInit(GPIOA, GPIO_PIN_9|GPIO_PIN_10);
 
+    /* USART1 interrupt Deinit */
+    HAL_NVIC_DisableIRQ(USART1_IRQn);
   /* USER CODE BEGIN USART1_MspDeInit 1 */
 
   /* USER CODE END USART1_MspDeInit 1 */

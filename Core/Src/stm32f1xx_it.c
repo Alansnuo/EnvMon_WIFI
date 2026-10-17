@@ -59,6 +59,7 @@
 
 /* External variables --------------------------------------------------------*/
 extern DMA_HandleTypeDef hdma_usart2_rx;
+extern UART_HandleTypeDef huart1;
 extern UART_HandleTypeDef huart2;
 extern TIM_HandleTypeDef htim4;
 
@@ -193,6 +194,26 @@ void TIM4_IRQHandler(void)
 }
 
 /**
+  * @brief This function handles USART1 global interrupt.
+  */
+void USART1_IRQHandler(void)
+{
+  /* USER CODE BEGIN USART1_IRQn 0 */
+  if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_RXNE) != RESET)
+  {
+    /* 字节在此读走再返回, 不落到下面的 HAL_UART_IRQHandler —— 它自己也会读一次
+       DR, 先读才能拿到真值. 读 DR 顺带清 RXNE/ORE (F1 上读 SR 再读 DR 即清). */
+    Asr_RxByteFromISR((uint8_t)(huart1.Instance->DR & 0xFFU));
+    return;
+  }
+  /* USER CODE END USART1_IRQn 0 */
+  HAL_UART_IRQHandler(&huart1);
+  /* USER CODE BEGIN USART1_IRQn 1 */
+
+  /* USER CODE END USART1_IRQn 1 */
+}
+
+/**
   * @brief This function handles USART2 global interrupt.
   */
 void USART2_IRQHandler(void)
@@ -207,27 +228,5 @@ void USART2_IRQHandler(void)
 }
 
 /* USER CODE BEGIN 1 */
-
-/**
-  * @brief  天问语音模块 (ASRPRO) 的接收中断.
-  *
-  * 直接读 DR 顺带清 RXNE, 故意不调 HAL_UART_IRQHandler —— 该函数自身也会读一次
-  * DR, 先读会把字节取走, HAL 拿到的是空值.
-  *
-  * 收到的字节一律交给 Asr_RxByteFromISR() 攒行 (遇 \r 或 \n 算一行).
-  *
-  * 放在 USER CODE 段内: CubeMX 重新生成本文件时只保留 USER CODE 段.
-  * (project.ioc 中未勾选 USART1 中断, 故 CubeMX 不会自行生成该函数.)
-  * 读 DR 同时也会清 ORE (F1 上读 SR 再读 DR 即清), 因此溢出不会卡死接收.
-  * 若日后出现"收几行后彻底收不到", 在此补:
-  *   if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_ORE)) { __HAL_UART_CLEAR_OREFLAG(&huart1); }
-  */
-void USART1_IRQHandler(void)
-{
-  if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_RXNE) != RESET)
-  {
-    Asr_RxByteFromISR((uint8_t)(huart1.Instance->DR & 0xFFU));
-  }
-}
 
 /* USER CODE END 1 */

@@ -102,7 +102,7 @@ const char *Set_Name(uint8_t idx);
 
 /* 当前告警码 (0 = 正常, 其余见 asr.h 的 ASR_ALARM_xxx).
  * 仅由语音任务每秒计算并写入, OLED 只读 (单一计算点, 避免两处结果不一致);
- * OLED 据此做超限闪烁提示 (必做4). */
+ * OLED 据此做超限闪烁提示 */
 extern volatile uint8_t g_xAlarmCode;
 
 /* 用 app_config.h 的宏给阈值填初值, 在 App_Init() 里调 */

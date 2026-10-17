@@ -11,7 +11,8 @@
 #define SCL_L()   HAL_GPIO_WritePin(MYI2C_SCL_PORT, MYI2C_SCL_PIN, GPIO_PIN_RESET)
 #define SDA_H()   HAL_GPIO_WritePin(MYI2C_SDA_PORT, MYI2C_SDA_PIN, GPIO_PIN_SET)
 #define SDA_L()   HAL_GPIO_WritePin(MYI2C_SDA_PORT, MYI2C_SDA_PIN, GPIO_PIN_RESET)
-#define SDA_IN()  ((MYI2C_SDA_PORT->IDR & MYI2C_SDA_PIN) ? 1U : 0U)
+#define SDA_IN()  HAL_GPIO_ReadPin(MYI2C_SDA_PORT, MYI2C_SDA_PIN)
+
 
 /* 产生 I2C 起始条件 (SCL 高时 SDA 下降沿) */
 void MyI2C_Start(void)

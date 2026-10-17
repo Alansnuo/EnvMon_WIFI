@@ -54,10 +54,9 @@ void UsageFault_Handler(void);
 void DebugMon_Handler(void);
 void DMA1_Channel6_IRQHandler(void);
 void TIM4_IRQHandler(void);
+void USART1_IRQHandler(void);
 void USART2_IRQHandler(void);
 /* USER CODE BEGIN EFP */
-
-void USART1_IRQHandler(void);       /* 天问语音模块接收, 实现在 stm32f1xx_it.c 的 USER CODE 段 */
 
 /* USER CODE END EFP */
 

@@ -59,7 +59,7 @@ static void TaskLight(void *argument)
         uint32_t i;
 
         /* 读照度更新共享值 (失败沿用上次值) */
-        if (BH1750_ReadLuxChecked(&lux))
+        if (BH1750_ReadLux(&lux))
         {
             g_xLatestLux = lux;
         }

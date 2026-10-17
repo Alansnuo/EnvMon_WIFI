@@ -15,7 +15,6 @@
 
 extern UART_HandleTypeDef huart1;           /* 定义在 Core/Src/usart.c */
 #define ASR_UART        huart1
-#define ASR_UART_IRQn   USART1_IRQn
 
 /* 模块发来的请求字符串 */
 #define ASR_REQ_TEMP    "TEMP"

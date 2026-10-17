@@ -1,27 +1,13 @@
 /* 4 个独立按键: 扫描式读取, 不用中断.
  * 三个 static 数组 (下标=键号): s_Last 上次电平(消抖), s_Sent 是否已报按下, s_Tick 按下时刻.
- * 消抖与"已报按下"分两个变量记录, 合并会使松手那一轮状态错乱. */
+ * 消抖与"已报按下"分两个变量记录, 合并会使松手那一轮状态错乱.
+ * 引脚(PA0/PA1/PA4/PA5, 输入+上拉)统一由 CubeMX 的 MX_GPIO_Init 配置, 本模块不再配引脚. */
 
 #include "key.h"
 
-static uint8_t  s_Last[KEY_ID_NUM] = { 1U, 1U, 1U, 1U };
-static uint8_t  s_Sent[KEY_ID_NUM] = { 0U, 0U, 0U, 0U };
-static uint32_t s_Tick[KEY_ID_NUM] = { 0U, 0U, 0U, 0U };
-
-/* ------------------------------ 初始化 ------------------------------ */
-void Key_Init(void)
-{
-    GPIO_InitTypeDef gi = {0};
-
-    __HAL_RCC_GPIOA_CLK_ENABLE();           /* KEY_PORT 是 GPIOA */
-
-    gi.Pin   = KEY_ALL_PINS;
-    gi.Mode  = GPIO_MODE_INPUT;
-    gi.Pull  = GPIO_PULLUP;                 /* 松手=高, 按下=低 */
-    gi.Speed = GPIO_SPEED_FREQ_LOW;
-    HAL_GPIO_Init(KEY_PORT, &gi);
-}
-
+static uint8_t  s_Last[KEY_ID_NUM] = { 1U, 1U, 1U, 1U }; // 按键引脚前一次电平
+static uint8_t  s_Sent[KEY_ID_NUM] = { 0U, 0U, 0U, 0U }; // 按下事件是否已经发送上报，0=未报，1=已报
+static uint32_t s_Tick[KEY_ID_NUM] = { 0U, 0U, 0U, 0U }; // 按下时刻(ms),值为0代表长按事件已上报
 /* ------------------------------ 读电平 ------------------------------ */
 /* 返回 1=松开(高), 0=按下(低) */
 static uint8_t Key_Level(uint8_t id)

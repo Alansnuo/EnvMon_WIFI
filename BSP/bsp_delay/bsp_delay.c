@@ -3,7 +3,8 @@
  * ========================================================================== */
 
 #include "bsp_delay.h"
-#include "main.h"                       /* HAL_Delay, TIM2 */
+#include "main.h"                       /* HAL_Delay */
+#include "tim.h"                        /* htim2: 微秒时基 */
 
 /* __weak 为 AC5 关键字; 链接器遇同名强定义时优先采用, 不报错不警告. */
 __weak void BSP_DelayMs(uint32_t ms)
@@ -17,19 +18,19 @@ __weak void BSP_DelayMs(uint32_t ms)
  * 16 位计数器每 65536us 回绕, 用无符号相减比较抗回绕.
  * ========================================================================== */
 
-#define BSP_US_TIM           TIM2
+#define BSP_US_TIM           (&htim2)
 #define BSP_US_TIM_MAX       60000UL    /* 单次延时上限, 距回绕留有余量 */
 
 static void BSP_DelayUsOnce(uint16_t us)
 {
-    uint16_t start = (uint16_t)BSP_US_TIM->CNT;
+    uint16_t start = (uint16_t)__HAL_TIM_GET_COUNTER(BSP_US_TIM);
 
-    while ((uint16_t)(BSP_US_TIM->CNT - start) < us) { }
+    while ((uint16_t)(__HAL_TIM_GET_COUNTER(BSP_US_TIM) - start) < us) { }
 }
 
 uint16_t BSP_GetUs(void)
 {
-    return (uint16_t)BSP_US_TIM->CNT;
+    return (uint16_t)__HAL_TIM_GET_COUNTER(BSP_US_TIM);
 }
 
 void BSP_DelayUs(uint32_t us)

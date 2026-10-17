@@ -16,14 +16,14 @@
 #include "main.h"
 
 /* -------------------------------- 硬件接口 -------------------------------- */
-
-extern UART_HandleTypeDef huart2;           /* USART2, 定义在 usart.c */
+extern UART_HandleTypeDef huart2;          /* huart2 在 main.c 里定义*/
 
 #define ESP8266_UART          huart2        /* USART2: PA2=TX, PA3=RX */
-#define ESP8266_RST_PIN       GPIO_PIN_6    /* RST: PA6 */
 #define ESP8266_RST_PORT      GPIOA
+#define ESP8266_RST_PIN       GPIO_PIN_6    /* RST: PA6 */
 
 /* -------------------------------- 超时(ms) -------------------------------- */
+//根据自己的网络环境调整
 #define ESP8266_TIMEOUT       5000          /* 一般 AT 命令等应答 */
 #define ESP8266_AP_TIMEOUT    15000         /* 接热点: 要等到 DHCP 拿到 IP */
 #define ESP8266_MQTT_TIMEOUT  15000         /* 连 broker: DNS + 握手 + CONNACK */
@@ -46,67 +46,30 @@ typedef enum {
 
 /* ================================= 初始化 ================================= */
 
-/**
- * @brief  初始化模块: 复位 + 挂上 DMA 接收 + 探活
- * @retval ESP8266_OK = 成功, 其余 = 失败原因
- */
+/// @brief  初始化模块: 复位 + 挂上 DMA 接收 + 探活
 ESP8266_Status ESP8266_Init(void);
 
 /* ================================== WiFi ================================== */
-
-/**
- * @brief  接热点 (含设成 Station 模式和清掉可能残留的关联)
- * @param  ssid      热点名
- * @param  password  密码
- * @retval ESP8266_OK = 成功, 其余 = 失败原因
- */
+/// @brief  接热点 (含设成 Station 模式和清掉可能残留的关联)
 ESP8266_Status ESP8266_ConnectAP(const char ssid[], const char password[]);
 
 /* ================================== 对时 ================================== */
 
-/**
- * @brief  用 ESP-AT 原生 SNTP 对一次时 (内部定死时区 UTC+8,
- *         直接解析模块回的格式化时间串), 必须在 ConnectAP() 成功之后调用
- * @param  hour  北京时间 时 (0~23)
- * @param  min   分 (0~59)
- * @param  sec   秒 (0~59)
- * @retval ESP8266_OK = 拿到时间, 其余 = 失败原因
- */
+/// @brief  联网对一次时, 内部定死时区 UTC+8, 直接解析模块回的格式化时间串
 ESP8266_Status ESP8266_GetNetTime(uint8_t *hour, uint8_t *min, uint8_t *sec);
 
 /* ================================== MQTT ================================== */
 
 /* 用法: SetParam() → ConnectBroker() → Publish() */
 
-/**
- * @brief  配 MQTT 鉴权 + 连接参数 (底下三条指令: USERCFG / PASSWORD / CONNCFG).
- *         Token 124 字节超过 USERCFG 的 64 字节上限, 所以单独走 AT+MQTTPASSWORD;
- *         keepalive 必须显式给, 模块会把 0 强制改成 120
- * @param  clientId   设备名
- * @param  username   产品 ID
- * @param  password   鉴权 Token
- * @param  keepalive  心跳周期(s)
- * @retval ESP8266_OK = 成功, 其余 = 失败原因
- */
+/// @brief  配 MQTT 鉴权 + 连接参数 (底下三条指令: USERCFG / PASSWORD / CONNCFG).
 ESP8266_Status ESP8266_MQTT_SetParam(const char clientId[], const char username[],
                                      const char password[], uint16_t keepalive);
 
-/**
- * @brief  连 broker. 必须匹配 "+MQTTCONNECTED", 不能只写 "CONNECTED"
- *         ("+MQTTDISCONNECTED" 里含着它)
- * @param  host  域名或 IP (传域名的话模块自己做 DNS)
- * @param  port  端口
- * @retval ESP8266_OK = 成功, 其余 = 失败原因
- */
+/// @brief  发布一条消息 (QoS 0). 载荷里的 " 和 , 要调用方先转义成 \" 和 \,
 ESP8266_Status ESP8266_MQTT_ConnectBroker(const char host[], uint16_t port);
 
-/**
- * @brief  发布一条消息 (QoS 0). 载荷里的 " 和 , 要调用方先转义成 \" 和 \,
- *         (见 task_wifi.c); 返回 OK 只代表模块收下了指令
- * @param  topic  主题
- * @param  data   载荷, 已转义
- * @retval ESP8266_OK = 成功, 其余 = 失败原因
- */
+/// @brief  连 broker. 必须匹配 "+MQTTCONNECTED"
 ESP8266_Status ESP8266_MQTT_Publish(const char topic[], const char data[]);
 
 #endif /* __ESP8266_H */

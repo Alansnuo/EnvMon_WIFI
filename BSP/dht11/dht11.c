@@ -6,14 +6,9 @@
 #include "bsp_delay.h"
 
 /* ========================= 总线电平操作 ========================= */
-/* F1 的 GPIO: MODE=01 输出10MHz, CNF=01 开漏; MODE=00 输入, CNF=10 上/下拉 */
-#define DHT11_CONF_OUT_OD     0x5UL                 /* 通用开漏输出 */
-#define DHT11_CONF_IN_PU      0x8UL                 /* 输入 + 上拉 */
-#define DHT11_CR_SHIFT        ((DHT11_PIN_NUM & 7UL) * 4UL)
-
-#define DHT11_HIGH()          (DHT11_PORT->BSRR = DHT11_PIN)    /* ODR=1: 释放总线 / 上拉 */
-#define DHT11_LOW()           (DHT11_PORT->BRR  = DHT11_PIN)    /* ODR=0: 拉低总线 */
-#define DHT11_LEVEL()         ((DHT11_PORT->IDR & DHT11_PIN) ? 1U : 0U)
+#define DHT11_HIGH()          HAL_GPIO_WritePin(DHT11_PORT, DHT11_PIN, GPIO_PIN_SET)    /* 释放总线 */
+#define DHT11_LOW()           HAL_GPIO_WritePin(DHT11_PORT, DHT11_PIN, GPIO_PIN_RESET)  /* 拉低总线 */
+#define DHT11_LEVEL()         HAL_GPIO_ReadPin(DHT11_PORT, DHT11_PIN)
 
 /* ========================= 超时 (us) ========================= */
 #define DHT11_TIMEOUT_RESP    200U                  /* 等从机应答 */
@@ -22,23 +17,24 @@
 #define DHT11_ONE_BIT_TH_US   45U                   /* >45us 判为 1 (0=26~28us, 1=70us) */
 
 /* ========================= 引脚方向切换 ========================= */
-static void DHT11_SetConf(uint32_t conf)
-{
-    /* CRL 管 0~7 脚, CRH 管 8~15 脚, 每个脚占 4bit */
-    volatile uint32_t *cr = (DHT11_PIN_NUM < 8UL) ? &DHT11_PORT->CRL : &DHT11_PORT->CRH;
-
-    *cr = (*cr & ~(0xFUL << DHT11_CR_SHIFT)) | (conf << DHT11_CR_SHIFT);
-}
-
+/* 输出开漏 10MHz / 输入上拉 (DHT11 需外部 4.7k~10k 上拉) */
 static void DHT11_PinOutput(void)
 {
-    DHT11_SetConf(DHT11_CONF_OUT_OD);
+    GPIO_InitTypeDef s = {0};
+    s.Pin   = DHT11_PIN;
+    s.Mode  = GPIO_MODE_OUTPUT_OD;
+    s.Pull  = GPIO_NOPULL;
+    s.Speed = GPIO_SPEED_FREQ_MEDIUM;
+    HAL_GPIO_Init(DHT11_PORT, &s);
 }
 
 static void DHT11_PinInput(void)
 {
-    DHT11_HIGH();                                   /* ODR=1 先选上拉, 再切输入模式 */
-    DHT11_SetConf(DHT11_CONF_IN_PU);
+    GPIO_InitTypeDef s = {0};
+    s.Pin   = DHT11_PIN;
+    s.Mode  = GPIO_MODE_INPUT;
+    s.Pull  = GPIO_PULLUP;                          /* HAL 内部先置 ODR=1 再切输入 */
+    HAL_GPIO_Init(DHT11_PORT, &s);
 }
 
 /* ===== 等电平 / 测电平宽度 ===== 用 BSP_GetUs() 读 TIM2, 16 位回绕由无符号相减处理 */
@@ -94,7 +90,7 @@ uint8_t DHT11_Read(DHT11_Data *data)
     BSP_DelayUs(30);
 
     /* --- 2. 从机应答 (整段位流约 4ms 不可打断) --- */
-    __disable_irq();
+    __disable_irq(); /* 关中断, 避免被任务切换打断, 导致后续时序判错 */
 
     if (!DHT11_WaitLevel(0, DHT11_TIMEOUT_RESP)) { goto exit; }  /* 等 80us 低 */
     if (!DHT11_WaitLevel(1, DHT11_TIMEOUT_RESP)) { goto exit; }  /* 等 80us 低结束 */
@@ -111,7 +107,7 @@ uint8_t DHT11_Read(DHT11_Data *data)
     ok = 1;
 
 exit:
-    __enable_irq();
+    __enable_irq();/* 开中断 */
     DHT11_PinOutput();
     DHT11_HIGH();                                   /* 释放总线, 回到空闲 */
 
@@ -119,11 +115,9 @@ exit:
         /* 湿度 0 或温度 >50 判为脏数据 (受干扰时可能全 0 且校验和恰好通过), 丢弃 */
         if (buf[0] == 0U || buf[2] > 50U) { return 0; }
 
-        data->humidity        = buf[0];
-        data->temperature     = buf[2];
-        /* 小数位: DHT11 恒为 0, 兼容品可能给出无效值, 夹到 0~9 避免显示异常 */
-        data->humidity_dec    = (buf[1] > 9U) ? 0U : buf[1];
-        data->temperature_dec = (buf[3] > 9U) ? 0U : buf[3];
+        /* DHT11 分辨率 1%RH / 1℃, buf[1]/buf[3] 小数位恒为 0, 不入结构体 */
+        data->humidity    = buf[0];
+        data->temperature = buf[2];
         return 1;
     }
     return 0;

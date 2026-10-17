@@ -1,6 +1,6 @@
 /* BH1750 光照传感器 (GY-302) 软件 I2C 驱动 (STM32F1 + HAL).
  * 时序: 上电(0x01) → H 分辨率模式(0x10) → 等 180ms → 读 2 字节 → /1.2.
- * I2C 原语见 BSP/MyI2C; 两个 IO 开漏, IDR 直接读总线真实电平. */
+ * I2C 原语见 BSP/MyI2C (两个 IO 开漏, 写 1 放开总线). */
 
 #include "BH1750.h"
 #include "MyI2C.h"
@@ -31,7 +31,7 @@ void BH1750_Init(void)
     BSP_DelayMs(10);
 }
 
-uint8_t BH1750_ReadLuxChecked(float *lux)
+uint8_t BH1750_ReadLux(float *lux)
 {
     uint16_t raw;
     uint8_t  ok = 0U;
@@ -47,7 +47,7 @@ uint8_t BH1750_ReadLuxChecked(float *lux)
 
     MyI2C_Start();
     /* WriteCmd 返回 1=成功, SendByte 返回 0=ACK */
-    if (MyI2C_SendByte(BH1750_ADDR_W | 0x01U) != 0U) { ok = 0U; }
+    if (MyI2C_SendByte(BH1750_ADDR_R) != 0U) { ok = 0U; }
     raw  = (uint16_t)((uint16_t)MyI2C_RecvByte(1U) << 8);  /* 高字节 */
     raw |= (uint16_t)MyI2C_RecvByte(0U);                   /* 低字节, 末字节发 NACK */
     MyI2C_Stop();
@@ -58,12 +58,4 @@ uint8_t BH1750_ReadLuxChecked(float *lux)
     if (raw == 0xFFFFU) { ok = 0U; }
 
     return ok;
-}
-
-float BH1750_ReadLux(void)
-{
-    float lux = 0.0f;
-
-    (void)BH1750_ReadLuxChecked(&lux);
-    return lux;
 }

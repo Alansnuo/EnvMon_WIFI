@@ -122,11 +122,10 @@ if (P1_7 == 0) { Delay(20); while (P1_7 == 0); Delay(20); KeyNum = 1; }
 让出去**（被人按住不放就永远不返回，别的任务全停）。所以改成：消抖确认按下就
 立刻报一次，然后记住"这个键还没松手"，松手之前不再重复报 —— 效果一样，不阻塞。
 
-对外就三个函数：
+对外就两个函数（4 个脚的输入+上拉由 CubeMX 的 `MX_GPIO_Init` 统一配置，不再有 `Key_Init`）：
 
 | 函数 | 用途 |
 |---|---|
-| `void Key_Init(void)` | 配 4 个脚为输入 + 上拉，`App_Init()` 里调一次 |
 | `Key_Event Key_Scan(uint8_t id)` | 每 `KEY_SCAN_MS`(20ms) 调一次，返回事件 |
 | `uint8_t Key_GetNum(uint8_t id)` | 参考工程那种用法：按下返回 1~4，没动作返回 0 |
 

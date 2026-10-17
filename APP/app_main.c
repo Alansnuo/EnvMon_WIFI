@@ -43,10 +43,9 @@ void App_Init(void)
     /* --- 1. 板级驱动初始化 (调度器之前: 延时只阻塞本流程; 各驱动均不可在任务里重调) --- */
     DHT11_Init();   /* 内部有 1 秒上电延时 */
     BH1750_Init();
-    Asr_Init();     /* 只开 USART1 RXNE 中断, UART 本体已由 CubeMX 配好 */
+    Asr_Init();     /* 只开 USART1 RXNE 中断 */
     OLED_Init();    /* 软件 I2C (PB8/PB9), 任务里重调会闪屏 */
     PWM_Init();     /* TIM1_CH1 → PA8, 先置灭, 之后由光照任务调 */
-    Key_Init();     /* 只配引脚, 扫描在 task_key.c */
     UI_Init();      /* 阈值从 app_config.h 宏拷进运行时变量 */
 
     /* --- 2. 建 DHT11 → 通信的数据通道 --- */
