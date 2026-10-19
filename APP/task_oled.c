@@ -40,16 +40,16 @@ static const char *WifiText(uint8_t state)
  * buf 须可写; size 传 sizeof(buf), 写入位置按 size 夹紧. */
 static void ShowPad(uint8_t line, uint8_t col, char *buf, uint32_t size, uint8_t width)
 {
-    uint8_t n = (uint8_t)strlen(buf);
+    uint32_t n = strlen(buf);
 
-    if ((uint32_t)n >= size)             /* 内容已经填满缓冲: 只截断, 不再补 */
+    if (n >= size)                          /* 内容已经填满缓冲: 只截断, 不再补 */
     {
         buf[size - 1U] = '\0';
         OLED_ShowString(line, col, buf);
         return;
     }
 
-    while ((n < width) && ((uint32_t)n < (size - 1U)))
+    while ((n < width) && (n < (size - 1U)))
     {
         buf[n] = ' ';
         n++;
@@ -228,7 +228,6 @@ static void DrawEditPage(void)
 
     {
         char tmp[OLED_COLS + 4U];
-        (void)snprintf(tmp, sizeof(tmp), "K2+ K3- K4=OK");
         ShowPad(3U, 1U, tmp, sizeof(tmp), OLED_COLS);
     }
     {

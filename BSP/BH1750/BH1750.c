@@ -1,14 +1,11 @@
 /* BH1750 光照传感器 (GY-302) 软件 I2C 驱动 (STM32F1 + HAL).
- * 时序: 上电(0x01) → H 分辨率模式(0x10) → 等 180ms → 读 2 字节 → /1.2.
- * I2C 原语见 BSP/MyI2C (两个 IO 开漏, 写 1 放开总线). */
+ * 时序: 上电(0x01) → H 分辨率模式(0x10) → 等 180ms → 读 2 字节 → 除1.2.  */
 
 #include "BH1750.h"
 #include "MyI2C.h"
 #include "bsp_delay.h"
 
 #define BH1750_CONV_MS   180U           /* H 分辨率一次转换最长 180ms */
-
-/* 软件 I2C 原语已抽到 BSP/MyI2C: MyI2C_Start/Stop/SendByte/RecvByte */
 
 /* 发一条单字节命令. 返回 1 = 地址和命令都被应答 */
 static uint8_t BH1750_WriteCmd(uint8_t cmd)
@@ -25,8 +22,6 @@ static uint8_t BH1750_WriteCmd(uint8_t cmd)
 
 void BH1750_Init(void)
 {
-    /* 引脚已由 CubeMX 配好, 这里不再重配 */
-
     (void)BH1750_WriteCmd(0x01);        /* 上电, 做一次即可 */
     BSP_DelayMs(10);
 }
@@ -54,8 +49,8 @@ uint8_t BH1750_ReadLux(float *lux)
 
     *lux = (float)raw / 1.2f;
 
-    /* raw 全 1 = 器件无应答, 换算约 54612 看似正常, 需单独判失败 */
-    if (raw == 0xFFFFU) { ok = 0U; }
+    /* raw 全 1 ，0xFFFF = 65535，65535 / 1.2 ≈ 54612 lx = 器件无应答，*/
+    if (raw == 0xFFFFU) { ok = 0U; }  
 
     return ok;
 }

@@ -23,18 +23,22 @@ void TaskDht11Create(void)
 /* ========================= 任务本体 ========================= */
 static void TaskDht11(void *argument)
 {
-    DHT11_Data dht;
+    App_EnvMsg env;
 
-    (void)argument;                     /* 未使用, 显式忽略 */
+    (void)argument;                     
 
     for (;;)
     {
-        if (DHT11_Read(&dht))
+        if (DHT11_Read(&env.dht))
         {
-            g_xLatestDht11 = dht;               /* 共享最新值给 OLED 显示 */
+            g_xLatestDht11 = env.dht;           /* 共享最新值给 OLED 显示 */
 
-            /* 投给通信任务; 队列满则丢弃, 生产者不阻塞 */
-            (void)xQueueSend(g_xDht11Queue, &dht, 0);
+            /* 打包最新光照; 队列满则丢弃, 生产者不阻塞 */
+            taskENTER_CRITICAL();
+            env.lux = g_xLatestLux;
+            taskEXIT_CRITICAL();
+
+            (void)xQueueSend(g_xEnvQueue, &env, 0);
         }
 
         /* 用 vTaskDelay 挂起让出 CPU, 不用 HAL_Delay 忙等 */

@@ -21,6 +21,8 @@
                 "${workspaceFolder}/BSP/MyI2C",
                 "${workspaceFolder}/BSP/PWM",
                 "${workspaceFolder}/BSP/ASR",
+                "${workspaceFolder}/BSP/OLED",
+                "${workspaceFolder}/BSP/KEY",
                 "D:/Download/kile5/PACK/ARM/ARMCC/include",
                 "D:/Download/kile5/PACK/ARM/ARMCC/include/arm_linux",
                 "D:/Download/kile5/PACK/ARM/ARMCC/include/arm_linux_compat",

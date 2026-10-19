@@ -16,7 +16,7 @@
 #include "main.h"
 
 /* -------------------------------- 硬件接口 -------------------------------- */
-extern UART_HandleTypeDef huart2;          /* huart2 在 main.c 里定义*/
+extern UART_HandleTypeDef huart2;      
 
 #define ESP8266_UART          huart2        /* USART2: PA2=TX, PA3=RX */
 #define ESP8266_RST_PORT      GPIOA
@@ -50,12 +50,12 @@ typedef enum {
 ESP8266_Status ESP8266_Init(void);
 
 /* ================================== WiFi ================================== */
-/// @brief  接热点 (含设成 Station 模式和清掉可能残留的关联)
+/// @brief  接热点 
 ESP8266_Status ESP8266_ConnectAP(const char ssid[], const char password[]);
 
 /* ================================== 对时 ================================== */
 
-/// @brief  联网对一次时, 内部定死时区 UTC+8, 直接解析模块回的格式化时间串
+/// @brief  联网对一次时
 ESP8266_Status ESP8266_GetNetTime(uint8_t *hour, uint8_t *min, uint8_t *sec);
 
 /* ================================== MQTT ================================== */
@@ -66,7 +66,7 @@ ESP8266_Status ESP8266_GetNetTime(uint8_t *hour, uint8_t *min, uint8_t *sec);
 ESP8266_Status ESP8266_MQTT_SetParam(const char clientId[], const char username[],
                                      const char password[], uint16_t keepalive);
 
-/// @brief  发布一条消息 (QoS 0). 载荷里的 " 和 , 要调用方先转义成 \" 和 \,
+/// @brief  发布一条消息 (QoS 0)
 ESP8266_Status ESP8266_MQTT_ConnectBroker(const char host[], uint16_t port);
 
 /// @brief  连 broker. 必须匹配 "+MQTTCONNECTED"

@@ -25,7 +25,9 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "app_main.h"     /* 应用层总入口: 任务创建全在 APP/ 里 */
+
+#include "app_main.h"     /* 应用层总入口 */
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -96,11 +98,11 @@ int main(void)
   MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
 
-  App_Init();    //应用层总入口: 建数据通道 + 建任务
-  vTaskStartScheduler();   // 启动FreeRTOS 调度器
+  App_Init();              //应用层总入口: 建数据通道 + 建任务
 
-  /* 只有 heap 不足、连空闲任务都建不起来时, vTaskStartScheduler() 才会返回 */
-  Error_Handler();
+  vTaskStartScheduler();   // 启动FreeRTOS 调度器
+   
+
   /* USER CODE END 2 */
 
   /* Infinite loop */

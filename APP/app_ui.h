@@ -1,8 +1,3 @@
-#ifndef __APP_UI_H
-#define __APP_UI_H
-
-#include <stdint.h>
-
 /* ============================================================================
  * 界面状态: 时钟 + 阈值 + 菜单 + 当前页面
  *
@@ -13,11 +8,16 @@
  * (例外: 时钟秒脉冲由 OLED 任务自身产生, 见 AppClock_Tick)
  * ========================================================================== */
 
+#ifndef __APP_UI_H
+#define __APP_UI_H
+
+#include <stdint.h>
+
 /* ============================================================================
- * 一、时钟: WiFi 联网对时 + 软件走字 (板上无 RTC)
+ * 一、时钟: WiFi 联网对时 + 软件走字 
  *
  * 时间来源: WiFi 任务联网成功后调 AppClock_SetTime() 写入 (见 task_wifi.c);
- * 秒进位:   OLED 任务周期 1 秒, 调 AppClock_Tick() 推进.
+ * 秒进位:   OLED 任务周期性调用 AppClock_Tick() 推进.
  * 断电重启先显示 00:00:00, 联网对时后跳回真实时间.
  * ========================================================================== */
 
@@ -27,8 +27,8 @@ typedef struct {
     uint8_t sec;        /* 0~59 */
 } Clock_Time;
 
-void       AppClock_Tick(void);                        /* 每过 1 秒调一次 */
-Clock_Time AppClock_Now(void);
+void       AppClock_Tick(void);     // 推进时钟
+Clock_Time AppClock_Now(void);      // 获取当前时钟时间
 void       AppClock_SetTime(uint8_t hour, uint8_t min, uint8_t sec); /* 联网对时 */
 
 /* ============================================================================
@@ -42,14 +42,14 @@ void       AppClock_SetTime(uint8_t hour, uint8_t min, uint8_t sec); /* 联网�
  * ========================================================================== */
 
 typedef enum {
-    TH_TEMP_UP = 0,
-    TH_TEMP_DN,
-    TH_HUMI_UP,
-    TH_HUMI_DN,
-    TH_LUX_DN,
-    TH_LUX_UP,
+    TH_TEMP_UP = 0,    // 温度上限 ℃
+    TH_TEMP_DN,        // 温度下限 ℃
+    TH_HUMI_UP,        // 湿度上限 %RH
+    TH_HUMI_DN,        // 湿度下限 %RH
+    TH_LUX_DN,         // 光照下限 lx
+    TH_LUX_UP,         // 光照上限 lx
     TH_COUNT
-} Thresh_Id;
+} Thresh_Id;   // 阈值索引, 0~5
 
 extern volatile int16_t g_xThresh[TH_COUNT];
 

@@ -20,7 +20,7 @@
 #include "task_wifi.h"
 
 /* ========================= 任务间数据通道 ========================= */
-QueueHandle_t g_xDht11Queue = NULL;
+QueueHandle_t g_xEnvQueue = NULL;
 
 /* ========================= 最新值共享 (采集任务写, OLED 任务读) ========================= */
 volatile DHT11_Data g_xLatestDht11 = {0, 0};
@@ -40,22 +40,22 @@ void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName)
 /* ========================= 应用层总入口 ========================= */
 void App_Init(void)
 {
-    /* --- 1. 板级驱动初始化 (调度器之前: 延时只阻塞本流程; 各驱动均不可在任务里重调) --- */
-    DHT11_Init();   /* 内部有 1 秒上电延时 */
+    /* --- 1. 板级驱动初始化 --- */
+    DHT11_Init();   
     BH1750_Init();
-    Asr_Init();     /* 只开 USART1 RXNE 中断 */
-    OLED_Init();    /* 软件 I2C (PB8/PB9), 任务里重调会闪屏 */
-    PWM_Init();     /* TIM1_CH1 → PA8, 先置灭, 之后由光照任务调 */
-    UI_Init();      /* 阈值从 app_config.h 宏拷进运行时变量 */
+    Asr_Init();     
+    OLED_Init();   
+    PWM_Init();    
+    UI_Init();     
 
-    /* --- 2. 建 DHT11 → 通信的数据通道 --- */
-    g_xDht11Queue = xQueueCreate(APP_DHT11_QUEUE_LEN, sizeof(DHT11_Data));
-    if (g_xDht11Queue == NULL)
+    /* --- 2. 建采集 → 通信的数据通道 (温湿度 + 光照) --- */
+    g_xEnvQueue = xQueueCreate(APP_ENV_QUEUE_LEN, sizeof(App_EnvMsg));
+    if (g_xEnvQueue == NULL)
     {
         Error_Handler();
     }
 
-    /* --- 3. 建任务 (只挂就绪表, 调度器起来后才跑; 运行顺序由优先级定) --- */
+    /* --- 3. 建任务 --- */
     TaskWifiCreate();
     TaskDht11Create();
     TaskLightCreate();

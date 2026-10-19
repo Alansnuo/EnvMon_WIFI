@@ -382,7 +382,7 @@
  * configCHECK_FOR_STACK_OVERFLOW is set to 1. See
  * https://www.freertos.org/Stacks-and-stack-overflow-checking.html  Defaults to
  * 0 if left undefined. */
-#define configCHECK_FOR_STACK_OVERFLOW        2
+#define configCHECK_FOR_STACK_OVERFLOW        2   //作用：检查栈溢出，2是最严格的检查方式，1是最宽松的检查方式，0是关闭检查
 
 /******************************************************************************/
 /* Run time and task stats gathering related definitions. *********************/

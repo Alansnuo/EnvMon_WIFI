@@ -146,8 +146,7 @@ void TaskWifiCreate(void)
 /* ======================== 任务本体: 先联网, 再上报 ======================== */
 static void TaskWifi(void *argument)
 {
-    DHT11_Data   dht;
-    float        lux;
+    App_EnvMsg   env;
     uint8_t      failStreak;            /* 连续失败计数, 成功一次就归零 */
 
     (void)argument;                     /* 未使用, 显式忽略 */
@@ -164,19 +163,15 @@ static void TaskWifi(void *argument)
         failStreak = 0;
         while (failStreak < WIFI_MAX_CONSEC_FAIL)
         {
-            if (xQueueReceive(g_xDht11Queue, &dht, portMAX_DELAY) != pdPASS)
+            if (xQueueReceive(g_xEnvQueue, &env, portMAX_DELAY) != pdPASS)
             {
                 break;                  /* 队列异常, 退出去重连 */
             }
 
-            /* 光照不走队列, 直接拷共享最新值 */
-            taskENTER_CRITICAL();
-            lux = g_xLatestLux;
-            taskEXIT_CRITICAL();
-
-            Json_SetTemp(dht.temperature);
-            Json_SetHumi(dht.humidity);
-            Json_SetLux(lux);
+            /* 一条消息带齐温湿度 + 光照, 无需再读共享变量 */
+            Json_SetTemp(env.dht.temperature);
+            Json_SetHumi(env.dht.humidity);
+            Json_SetLux(env.lux);
 
             if (Json_Report() == 0)
             {

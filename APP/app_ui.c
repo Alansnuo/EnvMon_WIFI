@@ -47,7 +47,7 @@ void AppClock_SetTime(uint8_t hour, uint8_t min, uint8_t sec)
 
 /* ========================= 二、阈值 ========================= */
 
-volatile int16_t g_xThresh[TH_COUNT];
+volatile int16_t g_xThresh[TH_COUNT]; // 阈值数组
 
 /* 每一项的取值范围和步进 */
 typedef struct {
@@ -86,13 +86,13 @@ static int16_t Thresh_PairClamp(Thresh_Id id, int16_t v)
     return v;
 }
 
-int16_t Thresh_Get(Thresh_Id id)
+int16_t Thresh_Get(Thresh_Id id)  //获取指定阈值
 {
     if ((uint32_t)id >= (uint32_t)TH_COUNT) { return 0; }
     return g_xThresh[id];
 }
 
-void Thresh_Adj(Thresh_Id id, int8_t dir)
+void Thresh_Adj(Thresh_Id id, int8_t dir) //调整指定阈值，dir = +1 / -1, 自动夹紧
 {
     int16_t v;
 

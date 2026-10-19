@@ -61,7 +61,7 @@ Key_Event Key_Scan(uint8_t id)
     }
 
     /* 已报按下: 按住够久报一次长按 */
-    if ((uint32_t)(HAL_GetTick() - s_Tick[id]) >= KEY_LONG_MS)
+    if ((HAL_GetTick() - s_Tick[id]) >= KEY_LONG_MS)
     {
         if (s_Tick[id] != 0U)               /* 0 标记长按已报过 */
         {

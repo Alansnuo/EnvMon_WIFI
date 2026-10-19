@@ -13,7 +13,7 @@ static void TaskLight(void *argument);
 
 /* 亮度平滑过渡: 2 秒周期内分 100 档渐变, 每 20ms 一档, 避免跳变 */
 #define LIGHT_FADE_STEP_MS   20U
-#define LIGHT_FADE_STEPS     (APP_LIGHT_PERIOD_MS / LIGHT_FADE_STEP_MS)
+#define LIGHT_FADE_STEPS     (APP_LIGHT_PERIOD_MS / LIGHT_FADE_STEP_MS) // 100 档
 
 /**
  * @brief 光控联动映射: 光照越暗, 灯越亮.
@@ -23,15 +23,15 @@ static void TaskLight(void *argument);
  */
 static uint16_t Light_ToBright(float lux)
 {
-    int lo = (int)Thresh_Get(TH_LUX_DN);
-    int hi = (int)Thresh_Get(TH_LUX_UP);
+    int TH_low= (int)Thresh_Get(TH_LUX_DN);
+    int TH_high = (int)Thresh_Get(TH_LUX_UP);
     int v  = (int)lux;
 
-    if (hi <= lo) { hi = lo + 1; }              /* 阈值相等/改反时防除零 */
-    if (v <= lo) { return PWM_MAX_BRIGHT; }     /* 暗 → 全亮 */
-    if (v >= hi) { return 0U; }                 /* 亮 → 全灭 */
+    if (TH_high <= TH_low) { TH_high = TH_low + 1; }              /* 阈值相等/改反时防除零 */
+    if (v <= TH_low) { return PWM_MAX_BRIGHT; }     /* 暗 → 全亮 */
+    if (v >= TH_high) { return 0U; }                 /* 亮 → 全灭 */
 
-    return (uint16_t)((uint32_t)(hi - v) * PWM_MAX_BRIGHT / (uint32_t)(hi - lo));
+    return (uint16_t)((TH_high - v) * PWM_MAX_BRIGHT / (TH_high - TH_low)); //
 }
 
 /* ========================= 建任务 ========================= */
@@ -54,7 +54,7 @@ static void TaskLight(void *argument)
 
     for (;;)
     {
-        uint16_t start, target;
+        uint16_t start, target;  //start: 当前亮度, target: 目标亮度
         int32_t  diff;
         uint32_t i;
 
